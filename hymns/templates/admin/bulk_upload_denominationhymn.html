@@ -1,0 +1,222 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Bulk Upload Denomination Hymns{% endblock %}
+
+{% block content %}
+<h1>Bulk Upload Denomination Hymns</h1>
+<p>Upload multiple hymn files at once for a specific denomination. Supported formats: .docx, .doc, .txt</p>
+<p><strong>This will create hymns, denomination associations, and verses all in one go!</strong></p>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    
+    <fieldset class="module aligned">
+        <h2>Required Settings</h2>
+        
+        <div class="form-row">
+            <div>
+                <label for="denomination">Denomination: <span style="color: red;">*</span></label>
+                <select name="denomination" id="denomination" required>
+                    <option value="">-- Select Denomination --</option>
+                    {% for denom in denominations %}
+                    <option value="{{ denom.id }}">{{ denom.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Select the denomination for all uploaded hymns</p>
+            </div>
+        </div>
+        
+        <div class="form-row" id="hymn-period-row" style="display: none;">
+            <div>
+                <label for="hymn_period">Hymn Period (Catholic only): <span style="color: red;">*</span></label>
+                <select name="hymn_period" id="hymn_period">
+                    <option value="">-- Select Period --</option>
+                    <option value="old">Old Hymns</option>
+                    <option value="new">New Hymns</option>
+                </select>
+                <p class="help">Required for Catholic hymns. Old and New have separate numbering sequences.</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label for="start_number">Starting Hymn Number:</label>
+                <input type="number" name="start_number" id="start_number" min="1" placeholder="Auto-assign if empty">
+                <p class="help">Leave empty to auto-assign starting from the last number for this denomination/period</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label for="files">Select Files: <span style="color: red;">*</span></label>
+                <input type="file" name="files" id="files" multiple accept=".docx,.doc,.txt" required>
+                <p class="help">You can select multiple files. Supported formats: Word documents (.docx, .doc) and text files (.txt)</p>
+            </div>
+        </div>
+    </fieldset>
+    
+    <fieldset class="module aligned">
+        <h2>Optional Settings</h2>
+        
+        <div class="form-row">
+            <div>
+                <label for="category">Category (Optional):</label>
+                <select name="category" id="category">
+                    <option value="">-- Select Category --</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Assign all uploaded hymns to this category</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label for="author">Author (Optional):</label>
+                <select name="author" id="author">
+                    <option value="">-- Select Author --</option>
+                    {% for author in authors %}
+                    <option value="{{ author.id }}">{{ author.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Assign all uploaded hymns to this author</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label>
+                    <input type="checkbox" name="is_premium" id="is_premium">
+                    Mark as Premium Content
+                </label>
+                <p class="help">Check this to mark all uploaded hymns as premium content</p>
+            </div>
+        </div>
+    </fieldset>
+    
+    <div class="submit-row">
+        <input type="submit" value="Upload Denomination Hymns" class="default">
+        <a href="{% url 'admin:hymns_denominationhymn_changelist' %}" class="button">Cancel</a>
+    </div>
+</form>
+
+<div style="margin-top: 30px; padding: 20px; background: #f8f8f8; border-radius: 5px;">
+    <h3>📋 File Format Guidelines:</h3>
+    <p><strong>The system automatically extracts and arranges data, but you must follow this format:</strong></p>
+    
+    <div style="background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #417690; border-radius: 3px;">
+        <h4>✅ Supported Formats:</h4>
+        
+        <p><strong>Format 1: With Prefix (e.g., NCH, OCH)</strong></p>
+        <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto;">
+NCH 1
+
+1. Behold! Behold! He cometh,
+Who doth salvation bring;
+Lift up your heads rejoicing,
+And welcome Zion's King;
+
+2. Hosanna to the Saviour,
+Who came on Christmas morn;
+And, of a lowly Virgin,
+Was in a stable born;</pre>
+        
+        <p style="margin-top: 15px;"><strong>Format 2: With Number and Title</strong></p>
+        <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto;">
+101. Amazing Grace
+
+1. Amazing grace, how sweet the sound
+That saved a wretch like me
+
+2. 'Twas grace that taught my heart to fear
+And grace my fears relieved</pre>
+        
+        <p style="margin-top: 15px;"><strong>Format 3: Title Only</strong></p>
+        <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto;">
+Amazing Grace
+
+1. Amazing grace, how sweet the sound
+That saved a wretch like me
+
+2. 'Twas grace that taught my heart to fear
+And grace my fears relieved</pre>
+    </div>
+    
+    <h4>📝 Format Rules:</h4>
+    <ul style="line-height: 1.8;">
+        <li><strong>Hymn Number/Title (First Line):</strong>
+            <ul>
+                <li>With prefix: <code>NCH 1</code> or <code>OCH 2</code> (extracts number: 1, 2)</li>
+                <li>With number and title: <code>101. Amazing Grace</code> (extracts both)</li>
+                <li>Title only: <code>Amazing Grace</code> (title only, number auto-assigned)</li>
+                <li><strong>Note:</strong> Number in file is extracted but not used - system uses "Starting Hymn Number" or auto-increments</li>
+            </ul>
+        </li>
+        <li><strong>Verses:</strong>
+            <ul>
+                <li><strong>Must be numbered:</strong> <code>1.`, `2.`, `3.`, etc.</code></li>
+                <li>Multi-line verses: Lines after the verse number are part of that verse</li>
+                <li>Empty lines between verses are optional but helpful</li>
+            </ul>
+        </li>
+        <li><strong>Choruses/Refrains:</strong>
+            <ul>
+                <li>Mark with: <code>Chorus:</code> or <code>Refrain:</code> (case-insensitive)</li>
+                <li>Example: <code>Chorus: Amazing grace, how sweet the sound</code></li>
+                <li>Automatically placed after all verses</li>
+            </ul>
+        </li>
+    </ul>
+    
+    <div style="background: #fff3cd; padding: 15px; margin: 15px 0; border-left: 4px solid #ffc107; border-radius: 3px;">
+        <h4>⚠️ Important Notes:</h4>
+        <ul style="line-height: 1.8;">
+            <li><strong>Hymn number in file is extracted but not used</strong> - The system uses "Starting Hymn Number" or auto-increments</li>
+            <li><strong>Supports prefixes like "NCH", "OCH"</strong> - Extracts the number after the prefix</li>
+            <li><strong>Title is optional</strong> - If missing, uses first few words of first verse</li>
+            <li><strong>Verses must be numbered</strong> - Use <code>1.`, `2.`, `3.`, etc.</code></li>
+            <li><strong>One hymn per file</strong> - Each file should contain only one hymn</li>
+            <li><strong>Multi-line verses are supported</strong> - Lines after verse number are part of that verse</li>
+            <li><strong>Choruses are auto-placed</strong> - They appear after all verses</li>
+            <li><strong>Category and Author can be added later</strong> - They're optional during upload</li>
+        </ul>
+    </div>
+    
+    <div style="background: #d1ecf1; padding: 15px; margin: 15px 0; border-left: 4px solid #0c5460; border-radius: 3px;">
+        <h4>💡 What the System Does Automatically:</h4>
+        <ul style="line-height: 1.8;">
+            <li>✅ Extracts title from first line</li>
+            <li>✅ Detects and numbers verses</li>
+            <li>✅ Identifies choruses/refrains</li>
+            <li>✅ Handles multi-line verses</li>
+            <li>✅ Preserves verse order</li>
+            <li>✅ Creates all verses in the database</li>
+        </ul>
+    </div>
+    
+    <p style="margin-top: 20px;"><strong>📖 For detailed format guide, see:</strong> <code>BULK_UPLOAD_FORMAT_GUIDE.md</code></p>
+</div>
+
+<script>
+// Show/hide hymn_period field based on denomination selection
+document.getElementById('denomination').addEventListener('change', function() {
+    const denominationSelect = this;
+    const hymnPeriodRow = document.getElementById('hymn-period-row');
+    const hymnPeriodSelect = document.getElementById('hymn_period');
+    const selectedOption = denominationSelect.options[denominationSelect.selectedIndex];
+    const denominationName = selectedOption.text.toLowerCase();
+    
+    if (denominationName.includes('catholic')) {
+        hymnPeriodRow.style.display = 'block';
+        hymnPeriodSelect.required = true;
+    } else {
+        hymnPeriodRow.style.display = 'none';
+        hymnPeriodSelect.required = false;
+        hymnPeriodSelect.value = '';
+    }
+});
+</script>
+{% endblock %}
+

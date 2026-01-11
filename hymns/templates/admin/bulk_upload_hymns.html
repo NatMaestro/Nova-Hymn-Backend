@@ -1,0 +1,85 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Bulk Upload Hymns{% endblock %}
+
+{% block content %}
+<h1>Bulk Upload Hymns</h1>
+<p>Upload multiple hymn files at once. Supported formats: .docx, .doc, .txt</p>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    
+    <fieldset class="module aligned">
+        <div class="form-row">
+            <div>
+                <label for="files">Select Files:</label>
+                <input type="file" name="files" id="files" multiple accept=".docx,.doc,.txt" required>
+                <p class="help">You can select multiple files. Supported formats: Word documents (.docx, .doc) and text files (.txt)</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label for="category">Category (Optional):</label>
+                <select name="category" id="category">
+                    <option value="">-- Select Category --</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Assign all uploaded hymns to this category</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label for="author">Author (Optional):</label>
+                <select name="author" id="author">
+                    <option value="">-- Select Author --</option>
+                    {% for author in authors %}
+                    <option value="{{ author.id }}">{{ author.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Assign all uploaded hymns to this author</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label>
+                    <input type="checkbox" name="is_premium" id="is_premium">
+                    Mark as Premium Content
+                </label>
+                <p class="help">Check this to mark all uploaded hymns as premium content</p>
+            </div>
+        </div>
+    </fieldset>
+    
+    <div class="submit-row">
+        <input type="submit" value="Upload Hymns" class="default">
+        <a href="{% url 'admin:hymns_hymn_changelist' %}" class="button">Cancel</a>
+    </div>
+</form>
+
+<div style="margin-top: 30px; padding: 20px; background: #f8f8f8; border-radius: 5px;">
+    <h3>File Format Guidelines:</h3>
+    <ul>
+        <li><strong>Word Documents (.docx, .doc):</strong>
+            <ul>
+                <li>First line should contain hymn number and title (e.g., "101. Amazing Grace")</li>
+                <li>Verses should be numbered (e.g., "1. Verse text...")</li>
+                <li>Choruses should be marked (e.g., "Chorus: Chorus text...")</li>
+            </ul>
+        </li>
+        <li><strong>Text Files (.txt):</strong>
+            <ul>
+                <li>Same format as Word documents</li>
+                <li>One verse per line or paragraph</li>
+            </ul>
+        </li>
+    </ul>
+    <p><strong>Note:</strong> If hymn number is not found in the file, it will be auto-assigned based on the last hymn number.</p>
+</div>
+{% endblock %}
+

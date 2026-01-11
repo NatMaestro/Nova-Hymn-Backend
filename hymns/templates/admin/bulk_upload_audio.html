@@ -1,0 +1,70 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Bulk Upload Audio Files{% endblock %}
+
+{% block content %}
+<h1>Bulk Upload Audio Files</h1>
+<p>Upload multiple audio files at once. The system will automatically detect hymn numbers from filenames.</p>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    
+    <fieldset class="module aligned">
+        <div class="form-row">
+            <div>
+                <label for="files">Select Audio Files:</label>
+                <input type="file" name="files" id="files" multiple accept="audio/*,.mp3,.wav,.m4a,.aac" required>
+                <p class="help">
+                    You can select multiple files. The system will extract hymn numbers from filenames.<br>
+                    <strong>Supported formats:</strong> MP3, WAV, M4A, AAC<br>
+                    <strong>Filename examples:</strong><br>
+                    • <code>101-piano.mp3</code> (hymn 101, piano)<br>
+                    • <code>hymn_102_soprano.wav</code> (hymn 102, soprano)<br>
+                    • <code>103-alto.m4a</code> (hymn 103, alto)
+                </p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label for="audio_type">Audio Type:</label>
+                <select name="audio_type" id="audio_type" required>
+                    <option value="">-- Select Audio Type --</option>
+                    {% for audio_type_code, audio_type_name in audio_types %}
+                    <option value="{{ audio_type_code }}">{{ audio_type_name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Select the type of audio for all uploaded files</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label>
+                    <input type="checkbox" name="is_premium" id="is_premium" checked>
+                    Mark as Premium Content
+                </label>
+                <p class="help">Check this to mark all uploaded audio files as premium content</p>
+            </div>
+        </div>
+    </fieldset>
+    
+    <div class="submit-row">
+        <input type="submit" value="Upload Audio Files" class="default">
+        <a href="{% url 'admin:hymns_audiofile_changelist' %}" class="button">Cancel</a>
+    </div>
+</form>
+
+<div style="margin-top: 30px; padding: 20px; background: #f8f8f8; border-radius: 5px;">
+    <h3>How It Works:</h3>
+    <ol>
+        <li>Name your audio files with the hymn number in the filename (e.g., <code>101-piano.mp3</code>)</li>
+        <li>Select all files you want to upload</li>
+        <li>Choose the audio type (piano, soprano, alto, tenor, bass, or full)</li>
+        <li>The system will automatically match files to hymns based on the number in the filename</li>
+    </ol>
+    <p><strong>Note:</strong> If a hymn number is not found, that file will be skipped with an error message.</p>
+</div>
+{% endblock %}
+
