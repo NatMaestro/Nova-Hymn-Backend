@@ -12,78 +12,175 @@ from .models import Hymn, Verse, Category, Author, SheetMusic, AudioFile
 
 
 def parse_word_document(file):
-    """Parse Word document and extract hymn data"""
+    """Parse Word document and extract hymn data - supports multiple hymns in one document"""
     try:
         doc = Document(file)
-        hymn_data = {
-            'title': '',
-            'number': None,
-            'verses': [],
-            'author': '',
-            'category': '',
-            'language': 'English',
-        }
+        all_hymns = []
         
+        current_hymn = None
         current_verse = None
         verse_number = 1
         title_found = False
         number_found = False
+        blank_lines_count = 0
+        
+        def save_current_hymn():
+            """Save the current hymn if it has data"""
+            nonlocal current_hymn, current_verse, verse_number, title_found, number_found
+            if current_hymn and (current_hymn.get('number') is not None or current_hymn.get('verses')):
+                # Add last verse
+                if current_verse:
+                    current_hymn['verses'].append(current_verse)
+                    current_verse = None
+                # Only add if it has verses or a valid number
+                if current_hymn.get('verses') or current_hymn.get('number'):
+                    all_hymns.append(current_hymn)
+            # Reset for next hymn
+            current_hymn = {
+                'title': '',
+                'number': None,
+                'verses': [],
+                'author': '',
+                'category': '',
+                'language': 'English',
+            }
+            current_verse = None
+            verse_number = 1
+            title_found = False
+            number_found = False
+        
+        def is_new_hymn_start(text):
+            """Check if this line indicates a new hymn"""
+            # Skip header lines (like "THE NEW CATHOLIC HYMNAL, 2021")
+            if re.match(r'^THE\s+NEW\s+CATHOLIC\s+HYMNAL', text, re.IGNORECASE):
+                return False, None
+            
+            # Pattern 1: "NCH 1", "OCH 2", etc. (prefix + number)
+            prefix_match = re.match(r'^[A-Z]{2,}\s+(\d+)$', text)
+            if prefix_match:
+                return True, int(prefix_match.group(1))
+            
+            # Pattern 2: "101. Amazing Grace" or "1. Amazing Grace"
+            title_match = re.match(r'^(\d+)\.\s*(.+)$', text)
+            if title_match:
+                return True, (int(title_match.group(1)), title_match.group(2))
+            
+            # Pattern 3: Just a number "101" or "1" (but only if we're starting fresh or after a hymn with verses)
+            number_only_match = re.match(r'^(\d+)$', text)
+            if number_only_match:
+                # Only treat as new hymn if:
+                # 1. We don't have a current hymn yet, OR
+                # 2. Current hymn has verses (meaning we've finished it), OR
+                # 3. Current hymn has a number and this is a different number
+                if not current_hymn:
+                    return True, int(number_only_match.group(1))
+                elif current_hymn.get('verses'):
+                    return True, int(number_only_match.group(1))
+                elif current_hymn.get('number') and int(number_only_match.group(1)) != current_hymn.get('number'):
+                    return True, int(number_only_match.group(1))
+            
+            return False, None
         
         for paragraph in doc.paragraphs:
             text = paragraph.text.strip()
+            
+            # Track blank lines
             if not text:
+                blank_lines_count += 1
+                # Multiple blank lines might indicate hymn separation
+                if blank_lines_count >= 2 and current_hymn and current_hymn.get('verses'):
+                    # Save current hymn if it has verses
+                    save_current_hymn()
+                    blank_lines_count = 0
+                continue
+            else:
+                blank_lines_count = 0
+            
+            # Skip header lines
+            if re.match(r'^THE\s+NEW\s+CATHOLIC\s+HYMNAL', text, re.IGNORECASE):
                 continue
             
-            # Try to extract hymn number from patterns like:
-            # "NCH 1", "OCH 2", "101. Title", "1. Title", or just "101"
-            if not number_found:
-                # Pattern 1: "NCH 1", "OCH 2", etc. (prefix + number)
-                prefix_match = re.match(r'^[A-Z]+\s+(\d+)$', text)
-                if prefix_match:
-                    hymn_data['number'] = int(prefix_match.group(1))
-                    number_found = True
-                    continue
+            # Check if this is a new hymn start
+            is_new, hymn_info = is_new_hymn_start(text)
+            if is_new:
+                # Save previous hymn if exists and has verses
+                if current_hymn and current_hymn.get('verses'):
+                    save_current_hymn()
                 
-                # Pattern 2: "101. Amazing Grace" or "1. Amazing Grace"
-                title_match = re.match(r'^(\d+)\.\s*(.+)$', text)
-                if title_match:
-                    hymn_data['number'] = int(title_match.group(1))
-                    hymn_data['title'] = title_match.group(2)
+                # Start new hymn
+                if isinstance(hymn_info, tuple):
+                    # Pattern 2: number and title together
+                    current_hymn = {
+                        'title': hymn_info[1],
+                        'number': hymn_info[0],
+                        'verses': [],
+                        'author': '',
+                        'category': '',
+                        'language': 'English',
+                    }
+                    number_found = True
                     title_found = True
+                else:
+                    # Pattern 1 or 3: just number
+                    current_hymn = {
+                        'title': '',
+                        'number': hymn_info,
+                        'verses': [],
+                        'author': '',
+                        'category': '',
+                        'language': 'English',
+                    }
                     number_found = True
-                    continue
-                
-                # Pattern 3: Just a number "101" or "1"
-                number_only_match = re.match(r'^(\d+)$', text)
-                if number_only_match:
-                    hymn_data['number'] = int(number_only_match.group(1))
+                    title_found = False
+                current_verse = None
+                verse_number = 1
+                continue
+            
+            # If we don't have a current hymn yet, start one
+            if not current_hymn:
+                current_hymn = {
+                    'title': '',
+                    'number': None,
+                    'verses': [],
+                    'author': '',
+                    'category': '',
+                    'language': 'English',
+                }
+            
+            # Try to extract hymn number from patterns (if not found yet)
+            if not number_found:
+                is_new, hymn_info = is_new_hymn_start(text)
+                if is_new:
+                    if isinstance(hymn_info, tuple):
+                        current_hymn['number'] = hymn_info[0]
+                        current_hymn['title'] = hymn_info[1]
+                        title_found = True
+                    else:
+                        current_hymn['number'] = hymn_info
                     number_found = True
                     continue
             
             # Try to extract title from first non-number paragraph
             if not title_found and number_found:
                 # If we have a number but no title, use first non-verse line as title
-                # But skip if it looks like a verse (starts with number)
                 if not re.match(r'^(\d+)\.', text):
-                    hymn_data['title'] = text
+                    current_hymn['title'] = text
                     title_found = True
                     continue
             
             # If we still don't have a title and this is the first content, use it as title
             if not title_found:
-                # Check if it's a verse number - if so, extract title from first verse
                 verse_match = re.match(r'^(\d+)\.', text)
                 if verse_match:
                     # Use first few words of first verse as title if no title found
                     verse_text = re.sub(r'^\d+\.\s*', '', text)
-                    # Take first 50 characters as title
-                    hymn_data['title'] = verse_text[:50].strip()
+                    current_hymn['title'] = verse_text[:50].strip()
                     if len(verse_text) > 50:
-                        hymn_data['title'] += '...'
+                        current_hymn['title'] += '...'
                     title_found = True
                     # Continue to process this as a verse below
                 else:
-                    hymn_data['title'] = text
+                    current_hymn['title'] = text
                     title_found = True
                     continue
             
@@ -94,7 +191,7 @@ def parse_word_document(file):
             if verse_match:
                 # Save previous verse if exists
                 if current_verse:
-                    hymn_data['verses'].append(current_verse)
+                    current_hymn['verses'].append(current_verse)
                 
                 verse_number = int(verse_match.group(1))
                 verse_text = re.sub(r'^\d+\.\s*', '', text)
@@ -107,7 +204,7 @@ def parse_word_document(file):
             elif chorus_match:
                 # Save previous verse if exists
                 if current_verse:
-                    hymn_data['verses'].append(current_verse)
+                    current_hymn['verses'].append(current_verse)
                 
                 verse_text = re.sub(r'^(Chorus|Refrain):?\s*', '', text, flags=re.IGNORECASE)
                 current_verse = {
@@ -129,90 +226,205 @@ def parse_word_document(file):
                 }
                 verse_number += 1
         
-        # Add last verse
-        if current_verse:
-            hymn_data['verses'].append(current_verse)
+        # Save last hymn
+        if current_hymn:
+            save_current_hymn()
         
-        return hymn_data
+        # If no hymns found, return single hymn (backward compatibility)
+        if not all_hymns:
+            return {
+                'title': '',
+                'number': None,
+                'verses': [],
+                'author': '',
+                'category': '',
+                'language': 'English',
+            }
+        
+        # If only one hymn, return it directly (backward compatibility)
+        if len(all_hymns) == 1:
+            return all_hymns[0]
+        
+        # Return list of hymns
+        return all_hymns
     except Exception as e:
         raise Exception(f"Error parsing Word document: {str(e)}")
 
 
 def parse_text_file(file):
-    """Parse plain text file and extract hymn data"""
+    """Parse plain text file and extract hymn data - supports multiple hymns in one document"""
     try:
+        # Reset file pointer in case it was read before
+        file.seek(0)
         content = file.read().decode('utf-8')
         lines = content.split('\n')
         
-        hymn_data = {
-            'title': '',
-            'number': None,
-            'verses': [],
-            'author': '',
-            'category': '',
-            'language': 'English',
-        }
+        all_hymns = []
         
+        current_hymn = None
         current_verse = None
         verse_number = 1
         title_found = False
         number_found = False
+        blank_lines_count = 0
+        
+        def save_current_hymn():
+            """Save the current hymn if it has data"""
+            nonlocal current_hymn, current_verse, verse_number, title_found, number_found
+            if current_hymn and (current_hymn.get('number') is not None or current_hymn.get('verses')):
+                # Add last verse
+                if current_verse:
+                    current_hymn['verses'].append(current_verse)
+                    current_verse = None
+                # Only add if it has verses or a valid number
+                if current_hymn.get('verses') or current_hymn.get('number'):
+                    all_hymns.append(current_hymn)
+            # Reset for next hymn
+            current_hymn = {
+                'title': '',
+                'number': None,
+                'verses': [],
+                'author': '',
+                'category': '',
+                'language': 'English',
+            }
+            current_verse = None
+            verse_number = 1
+            title_found = False
+            number_found = False
+        
+        def is_new_hymn_start(text):
+            """Check if this line indicates a new hymn"""
+            # Skip header lines (like "THE NEW CATHOLIC HYMNAL, 2021")
+            if re.match(r'^THE\s+NEW\s+CATHOLIC\s+HYMNAL', text, re.IGNORECASE):
+                return False, None
+            
+            # Pattern 1: "NCH 1", "OCH 2", etc. (prefix + number)
+            prefix_match = re.match(r'^[A-Z]{2,}\s+(\d+)$', text)
+            if prefix_match:
+                return True, int(prefix_match.group(1))
+            
+            # Pattern 2: "101. Amazing Grace" or "1. Amazing Grace"
+            title_match = re.match(r'^(\d+)\.\s*(.+)$', text)
+            if title_match:
+                return True, (int(title_match.group(1)), title_match.group(2))
+            
+            # Pattern 3: Just a number "101" or "1" (but only if we're starting fresh or after a hymn with verses)
+            number_only_match = re.match(r'^(\d+)$', text)
+            if number_only_match:
+                # Only treat as new hymn if:
+                # 1. We don't have a current hymn yet, OR
+                # 2. Current hymn has verses (meaning we've finished it), OR
+                # 3. Current hymn has a number and this is a different number
+                if not current_hymn:
+                    return True, int(number_only_match.group(1))
+                elif current_hymn.get('verses'):
+                    return True, int(number_only_match.group(1))
+                elif current_hymn.get('number') and int(number_only_match.group(1)) != current_hymn.get('number'):
+                    return True, int(number_only_match.group(1))
+            
+            return False, None
         
         for line in lines:
             text = line.strip()
+            
+            # Track blank lines
             if not text:
+                blank_lines_count += 1
+                # Multiple blank lines might indicate hymn separation
+                if blank_lines_count >= 2 and current_hymn and current_hymn.get('verses'):
+                    # Save current hymn if it has verses
+                    save_current_hymn()
+                    blank_lines_count = 0
+                continue
+            else:
+                blank_lines_count = 0
+            
+            # Skip header lines
+            if re.match(r'^THE\s+NEW\s+CATHOLIC\s+HYMNAL', text, re.IGNORECASE):
                 continue
             
-            # Try to extract hymn number from patterns like:
-            # "NCH 1", "OCH 2", "101. Title", "1. Title", or just "101"
-            if not number_found:
-                # Pattern 1: "NCH 1", "OCH 2", etc. (prefix + number)
-                prefix_match = re.match(r'^[A-Z]+\s+(\d+)$', text)
-                if prefix_match:
-                    hymn_data['number'] = int(prefix_match.group(1))
-                    number_found = True
-                    continue
+            # Check if this is a new hymn start
+            is_new, hymn_info = is_new_hymn_start(text)
+            if is_new:
+                # Save previous hymn if exists and has verses
+                if current_hymn and current_hymn.get('verses'):
+                    save_current_hymn()
                 
-                # Pattern 2: "101. Amazing Grace" or "1. Amazing Grace"
-                title_match = re.match(r'^(\d+)\.\s*(.+)$', text)
-                if title_match:
-                    hymn_data['number'] = int(title_match.group(1))
-                    hymn_data['title'] = title_match.group(2)
+                # Start new hymn
+                if isinstance(hymn_info, tuple):
+                    # Pattern 2: number and title together
+                    current_hymn = {
+                        'title': hymn_info[1],
+                        'number': hymn_info[0],
+                        'verses': [],
+                        'author': '',
+                        'category': '',
+                        'language': 'English',
+                    }
+                    number_found = True
                     title_found = True
+                else:
+                    # Pattern 1 or 3: just number
+                    current_hymn = {
+                        'title': '',
+                        'number': hymn_info,
+                        'verses': [],
+                        'author': '',
+                        'category': '',
+                        'language': 'English',
+                    }
                     number_found = True
-                    continue
-                
-                # Pattern 3: Just a number "101" or "1"
-                number_only_match = re.match(r'^(\d+)$', text)
-                if number_only_match:
-                    hymn_data['number'] = int(number_only_match.group(1))
+                    title_found = False
+                current_verse = None
+                verse_number = 1
+                continue
+            
+            # If we don't have a current hymn yet, start one
+            if not current_hymn:
+                current_hymn = {
+                    'title': '',
+                    'number': None,
+                    'verses': [],
+                    'author': '',
+                    'category': '',
+                    'language': 'English',
+                }
+            
+            # Try to extract hymn number from patterns (if not found yet)
+            if not number_found:
+                is_new, hymn_info = is_new_hymn_start(text)
+                if is_new:
+                    if isinstance(hymn_info, tuple):
+                        current_hymn['number'] = hymn_info[0]
+                        current_hymn['title'] = hymn_info[1]
+                        title_found = True
+                    else:
+                        current_hymn['number'] = hymn_info
                     number_found = True
                     continue
             
             # Try to extract title from first non-number line
             if not title_found and number_found:
                 # If we have a number but no title, use first non-verse line as title
-                # But skip if it looks like a verse (starts with number)
                 if not re.match(r'^(\d+)\.', text):
-                    hymn_data['title'] = text
+                    current_hymn['title'] = text
                     title_found = True
                     continue
             
             # If we still don't have a title and this is the first content, use it as title
             if not title_found:
-                # Check if it's a verse number - if so, extract title from first verse
                 verse_match = re.match(r'^(\d+)\.', text)
                 if verse_match:
                     # Use first few words of first verse as title if no title found
                     verse_text = re.sub(r'^\d+\.\s*', '', text)
-                    # Take first 50 characters as title
-                    hymn_data['title'] = verse_text[:50].strip()
+                    current_hymn['title'] = verse_text[:50].strip()
                     if len(verse_text) > 50:
-                        hymn_data['title'] += '...'
+                        current_hymn['title'] += '...'
                     title_found = True
                     # Continue to process this as a verse below
                 else:
-                    hymn_data['title'] = text
+                    current_hymn['title'] = text
                     title_found = True
                     continue
             
@@ -222,7 +434,7 @@ def parse_text_file(file):
             
             if verse_match:
                 if current_verse:
-                    hymn_data['verses'].append(current_verse)
+                    current_hymn['verses'].append(current_verse)
                 
                 verse_number = int(verse_match.group(1))
                 verse_text = re.sub(r'^\d+\.\s*', '', text)
@@ -234,7 +446,7 @@ def parse_text_file(file):
                 }
             elif chorus_match:
                 if current_verse:
-                    hymn_data['verses'].append(current_verse)
+                    current_hymn['verses'].append(current_verse)
                 
                 verse_text = re.sub(r'^(Chorus|Refrain):?\s*', '', text, flags=re.IGNORECASE)
                 current_verse = {
@@ -254,10 +466,27 @@ def parse_text_file(file):
                 }
                 verse_number += 1
         
-        if current_verse:
-            hymn_data['verses'].append(current_verse)
+        # Save last hymn
+        if current_hymn:
+            save_current_hymn()
         
-        return hymn_data
+        # If no hymns found, return single hymn (backward compatibility)
+        if not all_hymns:
+            return {
+                'title': '',
+                'number': None,
+                'verses': [],
+                'author': '',
+                'category': '',
+                'language': 'English',
+            }
+        
+        # If only one hymn, return it directly (backward compatibility)
+        if len(all_hymns) == 1:
+            return all_hymns[0]
+        
+        # Return list of hymns
+        return all_hymns
     except Exception as e:
         raise Exception(f"Error parsing text file: {str(e)}")
 

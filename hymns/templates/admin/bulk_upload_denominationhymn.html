@@ -5,7 +5,8 @@
 
 {% block content %}
 <h1>Bulk Upload Denomination Hymns</h1>
-<p>Upload multiple hymn files at once for a specific denomination. Supported formats: .docx, .doc, .txt</p>
+<p>Upload hymn files for a specific denomination. Supported formats: .docx, .doc, .txt</p>
+<p><strong>You can upload a single document containing ALL hymns, or multiple files (one hymn per file).</strong></p>
 <p><strong>This will create hymns, denomination associations, and verses all in one go!</strong></p>
 
 <form method="post" enctype="multipart/form-data">
@@ -51,7 +52,12 @@
             <div>
                 <label for="files">Select Files: <span style="color: red;">*</span></label>
                 <input type="file" name="files" id="files" multiple accept=".docx,.doc,.txt" required>
-                <p class="help">You can select multiple files. Supported formats: Word documents (.docx, .doc) and text files (.txt)</p>
+                <p class="help"><strong>You can upload:</strong></p>
+                <ul style="margin-left: 20px; margin-top: 5px;">
+                    <li><strong>Single document with ALL hymns</strong> - The system will automatically detect and parse each hymn</li>
+                    <li><strong>Multiple files</strong> - One hymn per file (traditional method)</li>
+                </ul>
+                <p class="help" style="margin-top: 5px;">Supported formats: Word documents (.docx, .doc) and text files (.txt)</p>
             </div>
         </div>
     </fieldset>
@@ -177,7 +183,8 @@ And grace my fears relieved</pre>
             <li><strong>Supports prefixes like "NCH", "OCH"</strong> - Extracts the number after the prefix</li>
             <li><strong>Title is optional</strong> - If missing, uses first few words of first verse</li>
             <li><strong>Verses must be numbered</strong> - Use <code>1.`, `2.`, `3.`, etc.</code></li>
-            <li><strong>One hymn per file</strong> - Each file should contain only one hymn</li>
+            <li><strong>Single document with multiple hymns</strong> - You can put all hymns in one document! The system detects new hymns when it sees a new hymn number (e.g., "NCH 1" followed by "NCH 2")</li>
+            <li><strong>OR one hymn per file</strong> - Traditional method: Each file contains one hymn</li>
             <li><strong>Multi-line verses are supported</strong> - Lines after verse number are part of that verse</li>
             <li><strong>Choruses are auto-placed</strong> - They appear after all verses</li>
             <li><strong>Category and Author can be added later</strong> - They're optional during upload</li>

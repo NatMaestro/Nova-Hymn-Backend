@@ -100,13 +100,24 @@ class HymnViewSet(viewsets.ReadOnlyModelViewSet):
         denomination_id = self.request.query_params.get('denomination')
         hymn_period = self.request.query_params.get('hymn_period')
         
-        if denomination_id:
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"HymnViewSet: denomination_id={denomination_id}, hymn_period={hymn_period}, action={self.action}")
+        
+        # Only apply denomination filter for list views, not for retrieve (detail) views
+        # This allows accessing hymns by ID even if they don't match the denomination filter
+        if self.action == 'list' and denomination_id:
             # Filter hymns that belong to this denomination
             queryset = queryset.filter(denomination_hymns__denomination_id=denomination_id)
             if hymn_period:
                 queryset = queryset.filter(denomination_hymns__hymn_period=hymn_period)
             # Remove duplicates
             queryset = queryset.distinct()
+            logger.info(f"Filtered queryset count: {queryset.count()}")
+        else:
+            # If no denomination specified or this is a retrieve action, return all hymns
+            logger.info(f"No denomination filter (action={self.action}), returning all hymns: {queryset.count()}")
         
         return queryset
 
@@ -114,6 +125,12 @@ class HymnViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action == 'retrieve':
             return HymnDetailSerializer
         return HymnListSerializer
+    
+    def get_serializer_context(self):
+        """Add request context to serializer"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
 
     def retrieve(self, request, *args, **kwargs):
         """Increment view count when hymn is viewed"""

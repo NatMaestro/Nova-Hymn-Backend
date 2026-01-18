@@ -1,0 +1,427 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}JSON Upload Denomination Hymns{% endblock %}
+
+{% block content %}
+<h1>JSON Upload Denomination Hymns</h1>
+<p>Paste JSON data or plain text to create hymns for a specific denomination. Supports single or multiple hymns.</p>
+<p><strong>This will create hymns, denomination associations, and verses all in one go!</strong></p>
+<p style="background: #d1ecf1; padding: 10px; border-left: 4px solid #0c5460; border-radius: 3px; margin-top: 10px;">
+    <strong>💡 Tip:</strong> If you paste plain text (like "NCH 1" followed by verses), click <strong>"Convert Text to JSON"</strong> to automatically convert it to JSON format!
+</p>
+
+<form method="post" id="jsonUploadForm">
+    {% csrf_token %}
+    
+    <fieldset class="module aligned">
+        <h2>Required Settings</h2>
+        
+        <div class="form-row">
+            <div>
+                <label for="denomination">Denomination: <span style="color: red;">*</span></label>
+                <select name="denomination" id="denomination" required>
+                    <option value="">-- Select Denomination --</option>
+                    {% for denom in denominations %}
+                    <option value="{{ denom.id }}">{{ denom.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Select the denomination for all uploaded hymns</p>
+            </div>
+        </div>
+        
+        <div class="form-row" id="hymn-period-row" style="display: none;">
+            <div>
+                <label for="hymn_period">Hymn Period (Catholic only): <span style="color: red;">*</span></label>
+                <select name="hymn_period" id="hymn_period">
+                    <option value="">-- Select Period --</option>
+                    <option value="old">Old Hymns</option>
+                    <option value="new">New Hymns</option>
+                </select>
+                <p class="help">Required for Catholic hymns. Old and New have separate numbering sequences.</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label for="start_number">Starting Hymn Number:</label>
+                <input type="number" name="start_number" id="start_number" min="1" placeholder="Auto-assign if empty">
+                <p class="help">Leave empty to auto-assign starting from the last number for this denomination/period</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div style="width: 100%;">
+                <label for="json_data">JSON Data: <span style="color: red;">*</span></label>
+                <textarea name="json_data" id="json_data" rows="20" style="width: 100%; font-family: monospace; font-size: 12px;" required placeholder='Paste your JSON here...'></textarea>
+                <p class="help">Paste JSON data in the format shown below. Supports single hymn or array of hymns.</p>
+            </div>
+        </div>
+    </fieldset>
+    
+    <fieldset class="module aligned">
+        <h2>Optional Settings</h2>
+        
+        <div class="form-row">
+            <div>
+                <label for="category">Category (Optional):</label>
+                <select name="category" id="category">
+                    <option value="">-- Select Category --</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Assign all uploaded hymns to this category</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label for="author">Author (Optional):</label>
+                <select name="author" id="author">
+                    <option value="">-- Select Author --</option>
+                    {% for author in authors %}
+                    <option value="{{ author.id }}">{{ author.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Assign all uploaded hymns to this author</p>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div>
+                <label>
+                    <input type="checkbox" name="is_premium" id="is_premium">
+                    Mark as Premium Content
+                </label>
+                <p class="help">Check this to mark all uploaded hymns as premium content</p>
+            </div>
+        </div>
+    </fieldset>
+    
+    <div class="submit-row">
+        <input type="submit" value="Upload Hymns from JSON" class="default">
+        <button type="button" id="formatJsonBtn" class="button">Format JSON</button>
+        <button type="button" id="validateJsonBtn" class="button">Validate JSON</button>
+        <button type="button" id="convertTextBtn" class="button">Convert Text to JSON</button>
+        <a href="{% url 'admin:hymns_denominationhymn_changelist' %}" class="button">Cancel</a>
+    </div>
+</form>
+
+<div style="margin-top: 30px; padding: 20px; background: #f8f8f8; border-radius: 5px;">
+    <h3>📋 JSON Format Guidelines:</h3>
+    
+    <div style="background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #417690; border-radius: 3px;">
+        <h4>✅ Format 1: Single Hymn</h4>
+        <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; font-size: 11px;">{
+  "number": 1,
+  "title": "Amazing Grace",
+  "verses": [
+    "Amazing grace, how sweet the sound\nThat saved a wretch like me",
+    "'Twas grace that taught my heart to fear\nAnd grace my fears relieved",
+    "Through many dangers, toils and snares\nI have already come"
+  ]
+}</pre>
+        
+        <h4 style="margin-top: 20px;">✅ Format 2: Multiple Hymns (Array)</h4>
+        <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; font-size: 11px;">[
+  {
+    "number": 1,
+    "title": "Amazing Grace",
+    "verses": [
+      "Amazing grace, how sweet the sound\nThat saved a wretch like me",
+      "'Twas grace that taught my heart to fear\nAnd grace my fears relieved"
+    ]
+  },
+  {
+    "number": 2,
+    "title": "How Great Thou Art",
+    "verses": [
+      "O Lord my God, when I in awesome wonder\nConsider all the worlds Thy hands have made",
+      "When through the woods and forest glades I wander\nAnd hear the birds sing sweetly in the trees"
+    ]
+  }
+]</pre>
+        
+        <h4 style="margin-top: 20px;">✅ Format 3: Detailed Verse Format (with verse_number and is_chorus)</h4>
+        <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; font-size: 11px;">{
+  "number": 1,
+  "title": "Amazing Grace",
+  "verses": [
+    {
+      "verse_number": 1,
+      "text": "Amazing grace, how sweet the sound\nThat saved a wretch like me",
+      "is_chorus": false
+    },
+    {
+      "verse_number": 2,
+      "text": "'Twas grace that taught my heart to fear\nAnd grace my fears relieved",
+      "is_chorus": false
+    },
+    {
+      "verse_number": 1,
+      "text": "Amazing grace, how sweet the sound",
+      "is_chorus": true
+    }
+  ]
+}</pre>
+    </div>
+    
+    <h4>📝 Field Descriptions:</h4>
+    <ul style="line-height: 1.8;">
+        <li><strong>number</strong> (optional): Hymn number. If omitted, uses auto-increment from starting number.</li>
+        <li><strong>title</strong> (required): Hymn title.</li>
+        <li><strong>verses</strong> (required): Array of verses. Can be:
+            <ul>
+                <li><strong>Simple strings</strong>: Auto-numbered starting from 1</li>
+                <li><strong>Objects</strong>: <code>{"verse_number": 1, "text": "...", "is_chorus": false}</code></li>
+            </ul>
+        </li>
+        <li><strong>language</strong> (optional): Defaults to "English"</li>
+    </ul>
+    
+    <div style="background: #fff3cd; padding: 15px; margin: 15px 0; border-left: 4px solid #ffc107; border-radius: 3px;">
+        <h4>⚠️ Important Notes:</h4>
+        <ul style="line-height: 1.8;">
+            <li><strong>Use <code>\n</code> for line breaks</strong> within verses</li>
+            <li><strong>Number conflicts</strong> are automatically resolved by using auto-increment</li>
+            <li><strong>Verses are auto-numbered</strong> if you use simple string format</li>
+            <li><strong>Choruses</strong> should have <code>"is_chorus": true</code> in detailed format</li>
+            <li><strong>Existing hymns</strong> with same title will be reused (shared across denominations)</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+// Show/hide hymn_period field based on denomination selection
+document.getElementById('denomination').addEventListener('change', function() {
+    const denominationSelect = this;
+    const hymnPeriodRow = document.getElementById('hymn-period-row');
+    const hymnPeriodSelect = document.getElementById('hymn_period');
+    const selectedOption = denominationSelect.options[denominationSelect.selectedIndex];
+    const denominationName = selectedOption.text.toLowerCase();
+    
+    if (denominationName.includes('catholic')) {
+        hymnPeriodRow.style.display = 'block';
+        hymnPeriodSelect.required = true;
+    } else {
+        hymnPeriodRow.style.display = 'none';
+        hymnPeriodSelect.required = false;
+        hymnPeriodSelect.value = '';
+    }
+});
+
+// Format JSON button
+document.getElementById('formatJsonBtn').addEventListener('click', function() {
+    const textarea = document.getElementById('json_data');
+    try {
+        const json = JSON.parse(textarea.value);
+        textarea.value = JSON.stringify(json, null, 2);
+        alert('JSON formatted successfully!');
+    } catch (e) {
+        alert('Invalid JSON: ' + e.message);
+    }
+});
+
+// Validate JSON button
+document.getElementById('validateJsonBtn').addEventListener('click', function() {
+    const textarea = document.getElementById('json_data');
+    try {
+        const json = JSON.parse(textarea.value);
+        const isArray = Array.isArray(json);
+        const items = isArray ? json : [json];
+        
+        let errors = [];
+        let warnings = [];
+        
+        items.forEach((item, idx) => {
+            if (!item.title) {
+                errors.push(`Item ${idx + 1}: Missing "title" field`);
+            }
+            if (!item.verses || !Array.isArray(item.verses) || item.verses.length === 0) {
+                errors.push(`Item ${idx + 1}: Missing or empty "verses" array`);
+            }
+            if (item.verses) {
+                item.verses.forEach((verse, vIdx) => {
+                    if (typeof verse === 'string' && !verse.trim()) {
+                        warnings.push(`Item ${idx + 1}, Verse ${vIdx + 1}: Empty verse text`);
+                    } else if (typeof verse === 'object' && !verse.text) {
+                        errors.push(`Item ${idx + 1}, Verse ${vIdx + 1}: Missing "text" field`);
+                    }
+                });
+            }
+        });
+        
+        if (errors.length > 0) {
+            alert('Validation Errors:\n\n' + errors.join('\n'));
+        } else if (warnings.length > 0) {
+            alert('Validation Warnings:\n\n' + warnings.join('\n') + '\n\nJSON is valid but has warnings.');
+        } else {
+            alert('✅ JSON is valid! Found ' + items.length + ' hymn(s).');
+        }
+    } catch (e) {
+        alert('❌ Invalid JSON: ' + e.message);
+    }
+});
+
+// Convert Text to JSON button
+document.getElementById('convertTextBtn').addEventListener('click', function() {
+    const textarea = document.getElementById('json_data');
+    const text = textarea.value.trim();
+    
+    if (!text) {
+        alert('Please paste your hymn text first');
+        return;
+    }
+    
+    // Check if it's already JSON
+    try {
+        JSON.parse(text);
+        alert('This is already valid JSON!');
+        return;
+    } catch (e) {
+        // Not JSON, proceed with conversion
+    }
+    
+    const lines = text.split('\n');
+    const hymns = [];
+    let currentHymn = null;
+    let currentVerse = null;
+    let verseNumber = null;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        if (!line) {
+            // Empty line - end current verse if exists
+            if (currentVerse) {
+                if (!currentHymn.verses) currentHymn.verses = [];
+                currentHymn.verses.push(currentVerse.trim());
+                currentVerse = null;
+                verseNumber = null;
+            }
+            continue;
+        }
+        
+        // Check for hymn number patterns: "NCH 1", "OCH 2", "1", etc.
+        const hymnNumberMatch = line.match(/^([A-Z]{2,})\s+(\d+)$/); // "NCH 1"
+        const hymnNumberOnlyMatch = line.match(/^(\d+)$/); // Just "1"
+        
+        if (hymnNumberMatch || (hymnNumberOnlyMatch && !currentHymn)) {
+            // Save previous hymn if exists
+            if (currentHymn && currentHymn.verses && currentHymn.verses.length > 0) {
+                hymns.push(currentHymn);
+            }
+            
+            // Start new hymn
+            const number = hymnNumberMatch ? parseInt(hymnNumberMatch[2]) : parseInt(hymnNumberOnlyMatch[1]);
+            currentHymn = {
+                number: number,
+                title: '', // Will be set from first verse if no title found
+                verses: []
+            };
+            currentVerse = null;
+            verseNumber = null;
+            continue;
+        }
+        
+        // Check for verse number: "1.", "2.", etc.
+        const verseMatch = line.match(/^(\d+)\.\s*(.+)$/);
+        
+        if (verseMatch) {
+            // If we don't have a hymn yet, create one
+            if (!currentHymn) {
+                currentHymn = {
+                    number: null,
+                    title: '',
+                    verses: []
+                };
+            }
+            
+            // Save previous verse if exists
+            if (currentVerse) {
+                currentHymn.verses.push(currentVerse.trim());
+            }
+            
+            verseNumber = parseInt(verseMatch[1]);
+            currentVerse = verseMatch[2];
+            continue;
+        }
+        
+        // Check for chorus/refrain
+        if (line.match(/^(Chorus|Refrain):?\s*(.+)$/i)) {
+            if (currentHymn) {
+                if (currentVerse) {
+                    currentHymn.verses.push(currentVerse.trim());
+                }
+                const chorusMatch = line.match(/^(Chorus|Refrain):?\s*(.+)$/i);
+                currentHymn.verses.push({
+                    verse_number: verseNumber || 1,
+                    text: chorusMatch[2],
+                    is_chorus: true
+                });
+                currentVerse = null;
+            }
+            continue;
+        }
+        
+        // Continue current verse or add as new line
+        if (currentVerse !== null) {
+            currentVerse += '\n' + line;
+        } else if (currentHymn) {
+            // If we have a hymn but no verse number, this might be a title or first verse
+            if (!currentHymn.title && !currentHymn.verses.length) {
+                // Could be title or first verse - treat as first verse
+                currentVerse = line;
+                verseNumber = 1;
+            } else {
+                // Continue last verse
+                if (currentHymn.verses.length > 0) {
+                    const lastVerse = currentHymn.verses[currentHymn.verses.length - 1];
+                    if (typeof lastVerse === 'string') {
+                        currentHymn.verses[currentHymn.verses.length - 1] = lastVerse + '\n' + line;
+                    }
+                }
+            }
+        } else {
+            // No hymn context - create one
+            currentHymn = {
+                number: null,
+                title: line,
+                verses: []
+            };
+        }
+    }
+    
+    // Save last verse and hymn
+    if (currentVerse) {
+        if (!currentHymn) {
+            currentHymn = { number: null, title: '', verses: [] };
+        }
+        currentHymn.verses.push(currentVerse.trim());
+    }
+    
+    if (currentHymn && currentHymn.verses && currentHymn.verses.length > 0) {
+        hymns.push(currentHymn);
+    }
+    
+    // Set titles from first verse if missing
+    hymns.forEach(hymn => {
+        if (!hymn.title && hymn.verses.length > 0) {
+            const firstVerse = typeof hymn.verses[0] === 'string' 
+                ? hymn.verses[0] 
+                : hymn.verses[0].text;
+            hymn.title = firstVerse.substring(0, 50).trim();
+            if (firstVerse.length > 50) hymn.title += '...';
+        }
+    });
+    
+    // Convert to JSON
+    const result = hymns.length === 1 ? hymns[0] : hymns;
+    textarea.value = JSON.stringify(result, null, 2);
+    
+    alert(`✅ Converted to JSON! Found ${hymns.length} hymn(s).\n\nPlease review and adjust the JSON before submitting.`);
+});
+</script>
+{% endblock %}
+
