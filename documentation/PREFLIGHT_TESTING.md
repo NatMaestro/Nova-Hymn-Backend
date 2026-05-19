@@ -47,13 +47,15 @@ Browse: http://localhost:8000/swagger/
 
 ## Production deploy checklist (Render)
 
+0. **Python version** — Use **3.11** (not 3.14). Set in Render Dashboard → Environment → `PYTHON_VERSION` = `3.11.11`, or rely on `runtime.txt` in this folder. Root Directory must be `Nova-Hymnal-Backend` if deploying from the monorepo.
+
 1. **Start command** (not `gunicorn app:app`):
    ```bash
    gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
    ```
 2. **Build command**:
    ```bash
-   pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+   pip install --upgrade pip setuptools wheel && pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
    ```
 3. **Environment variables**:
    - `DEBUG=False`
