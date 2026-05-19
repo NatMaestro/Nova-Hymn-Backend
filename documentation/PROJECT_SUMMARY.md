@@ -29,9 +29,11 @@ Nova-Hymnal-Backend/
 ├── manage.py                   # Django CLI
 ├── requirements.txt           # Python dependencies
 ├── env.example                # Environment template
-├── README.md                  # Full documentation
-├── QUICKSTART.md              # Quick start guide
-├── SETUP_INSTRUCTIONS.md      # Detailed setup
+├── README.md                  # Overview (repository root)
+├── documentation/             # Guides and reference docs
+│   ├── QUICKSTART.md          # Quick start guide
+│   ├── SETUP_INSTRUCTIONS.md  # Detailed setup
+│   └── ...                    # Deployment, bulk upload, DB notes, etc.
 └── .gitignore                 # Git ignore rules
 ```
 
@@ -234,10 +236,10 @@ python manage.py seed_media --hymn-id 101 --type audio --audio-type piano --file
 
 ## 📚 Documentation Files
 
-- **README.md** - Complete API documentation
-- **QUICKSTART.md** - Quick reference guide
-- **SETUP_INSTRUCTIONS.md** - Detailed setup steps
-- **PROJECT_SUMMARY.md** - This file
+- **README.md** (repository root) - Complete API documentation
+- **documentation/QUICKSTART.md** - Quick reference guide
+- **documentation/SETUP_INSTRUCTIONS.md** - Detailed setup steps
+- **documentation/PROJECT_SUMMARY.md** - This file
 
 ## 🎯 API Response Format
 

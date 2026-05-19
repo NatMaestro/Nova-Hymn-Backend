@@ -1,3 +1,4 @@
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -148,7 +149,12 @@ class HymnViewSet(viewsets.ReadOnlyModelViewSet):
         # Hide premium content if user doesn't have premium
         if not has_premium:
             # Remove sheet music and audio URLs for premium hymns
-            if instance.is_premium or (instance.sheet_music and instance.sheet_music.is_premium):
+            sheet_is_premium = False
+            try:
+                sheet_is_premium = instance.sheet_music.is_premium
+            except ObjectDoesNotExist:
+                pass
+            if instance.is_premium or sheet_is_premium:
                 data['sheet_music_url'] = None
                 data['sheet_music_thumbnail'] = None
             

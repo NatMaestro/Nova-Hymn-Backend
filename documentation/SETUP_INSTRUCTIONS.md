@@ -197,8 +197,8 @@ gunicorn config.wsgi:application --bind 0.0.0.0:8000
 ## Support
 
 For issues or questions, check:
-- `README.md` - Full documentation
-- `QUICKSTART.md` - Quick reference
+- [README.md](../README.md) (repository root) - Full documentation
+- [QUICKSTART.md](QUICKSTART.md) - Quick reference
 - Django documentation: https://docs.djangoproject.com/
 - DRF documentation: https://www.django-rest-framework.org/
 

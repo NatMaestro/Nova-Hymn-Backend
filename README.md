@@ -22,6 +22,7 @@ Nova-Hymnal-Backend/
 │   ├── settings.py        # Settings with environment variables
 │   ├── urls.py            # Root URL configuration
 │   └── wsgi.py            # WSGI configuration
+├── documentation/         # Guides (setup, deployment, bulk upload, etc.)
 ├── hymns/                 # Main app
 │   ├── models.py          # Database models
 │   ├── serializers.py    # DRF serializers
@@ -36,6 +37,8 @@ Nova-Hymnal-Backend/
 ├── requirements.txt      # Python dependencies
 └── .env.example          # Environment variables template
 ```
+
+Additional references: see the `documentation/` folder for `QUICKSTART.md`, `DEPLOYMENT_GUIDE.md`, `SETUP_INSTRUCTIONS.md`, and other topic-specific guides.
 
 ## Installation
 

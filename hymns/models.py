@@ -320,7 +320,12 @@ class Subscription(models.Model):
     cancelled_at = models.DateTimeField(blank=True, null=True)
     
     # Platform info
-    platform = models.CharField(max_length=20, choices=[('ios', 'iOS'), ('android', 'Android')], blank=True, null=True)
+    platform = models.CharField(
+        max_length=20,
+        choices=[('ios', 'iOS'), ('android', 'Android'), ('web', 'Web')],
+        blank=True,
+        null=True,
+    )
     
     # Receipt data (for verification)
     receipt_data = models.TextField(blank=True, null=True, help_text="Receipt data from app store")
