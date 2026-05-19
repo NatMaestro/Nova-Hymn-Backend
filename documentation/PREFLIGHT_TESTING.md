@@ -61,7 +61,7 @@ Browse: http://localhost:8000/swagger/
    - `DEBUG=False`
    - `ENV=production`
    - `SECRET_KEY` — long random string (Render can generate)
-   - `ALLOWED_HOSTS=nova-hymnal-be.onrender.com`
+   - `ALLOWED_HOSTS=nova-hymn-backend.onrender.com`
    - `DB_*` — Neon connection (host, user, password, name, port)
    - `DB_SSLMODE=require`
    - `CORS_ALLOW_ALL_ORIGINS=False`
@@ -69,7 +69,7 @@ Browse: http://localhost:8000/swagger/
    - `CSRF_TRUSTED_ORIGINS=https://your-web-app.com`
 4. After deploy, verify:
    ```bash
-   curl https://nova-hymnal-be.onrender.com/api/v1/denominations/
+   curl https://nova-hymn-backend.onrender.com/api/v1/denominations/
    ```
    Response must be JSON with `"results"` (Django REST), not `"statusCode": 404`.
 

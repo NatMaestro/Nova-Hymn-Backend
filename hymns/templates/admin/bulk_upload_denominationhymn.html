@@ -1,20 +1,19 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
 
-{% block title %}Bulk Upload Denomination Hymns{% endblock %}
+{% block title %}Bulk Upload Hymns (JSON){% endblock %}
 
 {% block content %}
-<h1>Bulk Upload Denomination Hymns</h1>
-<p>Upload hymn files for a specific denomination. Supported formats: .docx, .doc, .txt</p>
-<p><strong>You can upload a single document containing ALL hymns, or multiple files (one hymn per file).</strong></p>
-<p><strong>This will create hymns, denomination associations, and verses all in one go!</strong></p>
+<h1>Bulk Upload Hymns (JSON)</h1>
+<p>Paste <strong>JSON</strong> for one or many hymns. You can also paste <strong>plain text</strong> (e.g. <code>NCH 1</code> with numbered verses) and click <strong>Import</strong> — the server converts it automatically.</p>
+<p><strong>Creates the hymn, denomination link, and all verses in one step.</strong></p>
 
-<form method="post" enctype="multipart/form-data">
+<form method="post">
     {% csrf_token %}
-    
+
     <fieldset class="module aligned">
-        <h2>Required Settings</h2>
-        
+        <h2>Required</h2>
+
         <div class="form-row">
             <div>
                 <label for="denomination">Denomination: <span style="color: red;">*</span></label>
@@ -24,206 +23,122 @@
                     <option value="{{ denom.id }}">{{ denom.name }}</option>
                     {% endfor %}
                 </select>
-                <p class="help">Select the denomination for all uploaded hymns</p>
             </div>
         </div>
-        
+
         <div class="form-row" id="hymn-period-row" style="display: none;">
             <div>
-                <label for="hymn_period">Hymn Period (Catholic only): <span style="color: red;">*</span></label>
+                <label for="hymn_period">Hymn period (Catholic only): <span style="color: red;">*</span></label>
                 <select name="hymn_period" id="hymn_period">
-                    <option value="">-- Select Period --</option>
-                    <option value="old">Old Hymns</option>
-                    <option value="new">New Hymns</option>
+                    <option value="">-- Select period --</option>
+                    <option value="old">Old hymns</option>
+                    <option value="new">New hymns</option>
                 </select>
-                <p class="help">Required for Catholic hymns. Old and New have separate numbering sequences.</p>
             </div>
         </div>
-        
+
         <div class="form-row">
             <div>
-                <label for="start_number">Starting Hymn Number:</label>
-                <input type="number" name="start_number" id="start_number" min="1" placeholder="Auto-assign if empty">
-                <p class="help">Leave empty to auto-assign starting from the last number for this denomination/period</p>
+                <label for="start_number">Starting hymn number</label>
+                <input type="number" name="start_number" id="start_number" min="1" placeholder="Optional">
+                <p class="help">If a hymn omits <code>number</code>, numbering continues from here or the last hymn in this denomination.</p>
             </div>
         </div>
-        
+
         <div class="form-row">
-            <div>
-                <label for="files">Select Files: <span style="color: red;">*</span></label>
-                <input type="file" name="files" id="files" multiple accept=".docx,.doc,.txt" required>
-                <p class="help"><strong>You can upload:</strong></p>
-                <ul style="margin-left: 20px; margin-top: 5px;">
-                    <li><strong>Single document with ALL hymns</strong> - The system will automatically detect and parse each hymn</li>
-                    <li><strong>Multiple files</strong> - One hymn per file (traditional method)</li>
-                </ul>
-                <p class="help" style="margin-top: 5px;">Supported formats: Word documents (.docx, .doc) and text files (.txt)</p>
+            <div style="width: 100%;">
+                <label for="json_data">Hymn JSON or plain text: <span style="color: red;">*</span></label>
+                <textarea name="json_data" id="json_data" rows="22" style="width: 100%; font-family: monospace; font-size: 12px;" required></textarea>
             </div>
         </div>
     </fieldset>
-    
+
     <fieldset class="module aligned">
-        <h2>Optional Settings</h2>
-        
+        <h2>Optional</h2>
+
         <div class="form-row">
             <div>
-                <label for="category">Category (Optional):</label>
+                <label for="category">Category</label>
                 <select name="category" id="category">
-                    <option value="">-- Select Category --</option>
+                    <option value="">-- None --</option>
                     {% for cat in categories %}
                     <option value="{{ cat.id }}">{{ cat.name }}</option>
                     {% endfor %}
                 </select>
-                <p class="help">Assign all uploaded hymns to this category</p>
             </div>
         </div>
-        
+
         <div class="form-row">
             <div>
-                <label for="author">Author (Optional):</label>
+                <label for="author">Author</label>
                 <select name="author" id="author">
-                    <option value="">-- Select Author --</option>
+                    <option value="">-- None --</option>
                     {% for author in authors %}
                     <option value="{{ author.id }}">{{ author.name }}</option>
                     {% endfor %}
                 </select>
-                <p class="help">Assign all uploaded hymns to this author</p>
             </div>
         </div>
-        
+
         <div class="form-row">
             <div>
                 <label>
                     <input type="checkbox" name="is_premium" id="is_premium">
-                    Mark as Premium Content
+                    Mark as premium
                 </label>
-                <p class="help">Check this to mark all uploaded hymns as premium content</p>
             </div>
         </div>
     </fieldset>
-    
+
     <div class="submit-row">
-        <input type="submit" value="Upload Denomination Hymns" class="default">
+        <input type="submit" value="Import hymns" class="default">
+        <button type="button" id="loadExampleBtn" class="button">Load NCH 1 example</button>
+        <button type="button" id="formatJsonBtn" class="button">Format JSON</button>
         <a href="{% url 'admin:hymns_denominationhymn_changelist' %}" class="button">Cancel</a>
     </div>
 </form>
 
 <div style="margin-top: 30px; padding: 20px; background: #f8f8f8; border-radius: 5px;">
-    <h3>📋 File Format Guidelines:</h3>
-    <p><strong>The system automatically extracts and arranges data, but you must follow this format:</strong></p>
-    
-    <div style="background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #417690; border-radius: 3px;">
-        <h4>✅ Supported Formats:</h4>
-        
-        <p><strong>Format 1: With Prefix (e.g., NCH, OCH)</strong></p>
-        <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto;">
-NCH 1
-
-1. Behold! Behold! He cometh,
-Who doth salvation bring;
-Lift up your heads rejoicing,
-And welcome Zion's King;
-
-2. Hosanna to the Saviour,
-Who came on Christmas morn;
-And, of a lowly Virgin,
-Was in a stable born;</pre>
-        
-        <p style="margin-top: 15px;"><strong>Format 2: With Number and Title</strong></p>
-        <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto;">
-101. Amazing Grace
-
-1. Amazing grace, how sweet the sound
-That saved a wretch like me
-
-2. 'Twas grace that taught my heart to fear
-And grace my fears relieved</pre>
-        
-        <p style="margin-top: 15px;"><strong>Format 3: Title Only</strong></p>
-        <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto;">
-Amazing Grace
-
-1. Amazing grace, how sweet the sound
-That saved a wretch like me
-
-2. 'Twas grace that taught my heart to fear
-And grace my fears relieved</pre>
-    </div>
-    
-    <h4>📝 Format Rules:</h4>
-    <ul style="line-height: 1.8;">
-        <li><strong>Hymn Number/Title (First Line):</strong>
-            <ul>
-                <li>With prefix: <code>NCH 1</code> or <code>OCH 2</code> (extracts number: 1, 2)</li>
-                <li>With number and title: <code>101. Amazing Grace</code> (extracts both)</li>
-                <li>Title only: <code>Amazing Grace</code> (title only, number auto-assigned)</li>
-                <li><strong>Note:</strong> Number in file is extracted but not used - system uses "Starting Hymn Number" or auto-increments</li>
-            </ul>
-        </li>
-        <li><strong>Verses:</strong>
-            <ul>
-                <li><strong>Must be numbered:</strong> <code>1.`, `2.`, `3.`, etc.</code></li>
-                <li>Multi-line verses: Lines after the verse number are part of that verse</li>
-                <li>Empty lines between verses are optional but helpful</li>
-            </ul>
-        </li>
-        <li><strong>Choruses/Refrains:</strong>
-            <ul>
-                <li>Mark with: <code>Chorus:</code> or <code>Refrain:</code> (case-insensitive)</li>
-                <li>Example: <code>Chorus: Amazing grace, how sweet the sound</code></li>
-                <li>Automatically placed after all verses</li>
-            </ul>
-        </li>
-    </ul>
-    
-    <div style="background: #fff3cd; padding: 15px; margin: 15px 0; border-left: 4px solid #ffc107; border-radius: 3px;">
-        <h4>⚠️ Important Notes:</h4>
-        <ul style="line-height: 1.8;">
-            <li><strong>Hymn number in file is extracted but not used</strong> - The system uses "Starting Hymn Number" or auto-increments</li>
-            <li><strong>Supports prefixes like "NCH", "OCH"</strong> - Extracts the number after the prefix</li>
-            <li><strong>Title is optional</strong> - If missing, uses first few words of first verse</li>
-            <li><strong>Verses must be numbered</strong> - Use <code>1.`, `2.`, `3.`, etc.</code></li>
-            <li><strong>Single document with multiple hymns</strong> - You can put all hymns in one document! The system detects new hymns when it sees a new hymn number (e.g., "NCH 1" followed by "NCH 2")</li>
-            <li><strong>OR one hymn per file</strong> - Traditional method: Each file contains one hymn</li>
-            <li><strong>Multi-line verses are supported</strong> - Lines after verse number are part of that verse</li>
-            <li><strong>Choruses are auto-placed</strong> - They appear after all verses</li>
-            <li><strong>Category and Author can be added later</strong> - They're optional during upload</li>
-        </ul>
-    </div>
-    
-    <div style="background: #d1ecf1; padding: 15px; margin: 15px 0; border-left: 4px solid #0c5460; border-radius: 3px;">
-        <h4>💡 What the System Does Automatically:</h4>
-        <ul style="line-height: 1.8;">
-            <li>✅ Extracts title from first line</li>
-            <li>✅ Detects and numbers verses</li>
-            <li>✅ Identifies choruses/refrains</li>
-            <li>✅ Handles multi-line verses</li>
-            <li>✅ Preserves verse order</li>
-            <li>✅ Creates all verses in the database</li>
-        </ul>
-    </div>
-    
-    <p style="margin-top: 20px;"><strong>📖 For detailed format guide, see:</strong> <code>documentation/BULK_UPLOAD_FORMAT_GUIDE.md</code></p>
+    <h3>JSON format (NCH 1)</h3>
+    <p>Single object, array, or <code>{ "hymns": [ … ] }</code>. Use <code>\n</code> for line breaks in <code>text</code>.</p>
+    <pre style="background: #fff; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 11px;">{{ example_json }}</pre>
+    <p>See <code>documentation/HYMN_JSON_FORMAT.md</code> for the full spec.</p>
 </div>
 
+<script id="example-json-data" type="application/json">{{ example_json }}</script>
 <script>
-// Show/hide hymn_period field based on denomination selection
 document.getElementById('denomination').addEventListener('change', function() {
-    const denominationSelect = this;
-    const hymnPeriodRow = document.getElementById('hymn-period-row');
-    const hymnPeriodSelect = document.getElementById('hymn_period');
-    const selectedOption = denominationSelect.options[denominationSelect.selectedIndex];
-    const denominationName = selectedOption.text.toLowerCase();
-    
-    if (denominationName.includes('catholic')) {
-        hymnPeriodRow.style.display = 'block';
-        hymnPeriodSelect.required = true;
+    const row = document.getElementById('hymn-period-row');
+    const sel = document.getElementById('hymn_period');
+    const name = this.options[this.selectedIndex].text.toLowerCase();
+    if (name.includes('catholic')) {
+        row.style.display = 'block';
+        sel.required = true;
     } else {
-        hymnPeriodRow.style.display = 'none';
-        hymnPeriodSelect.required = false;
-        hymnPeriodSelect.value = '';
+        row.style.display = 'none';
+        sel.required = false;
+        sel.value = '';
+    }
+});
+
+const exampleJson = document.getElementById('example-json-data').textContent;
+
+document.getElementById('loadExampleBtn').addEventListener('click', function() {
+    try {
+        document.getElementById('json_data').value = JSON.stringify(JSON.parse(exampleJson), null, 2);
+    } catch (e) {
+        document.getElementById('json_data').value = exampleJson;
+    }
+});
+
+document.getElementById('formatJsonBtn').addEventListener('click', function() {
+    const ta = document.getElementById('json_data');
+    try {
+        ta.value = JSON.stringify(JSON.parse(ta.value), null, 2);
+        alert('JSON formatted.');
+    } catch (e) {
+        alert('Not valid JSON. You can still import plain text — click Import hymns.');
     }
 });
 </script>
 {% endblock %}
-

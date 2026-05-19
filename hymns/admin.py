@@ -7,7 +7,13 @@ from .models import (
     Category, Author, Denomination, DenominationHymn, Hymn, Verse, SheetMusic, AudioFile,
     User, Subscription, Favorite, Playlist, PlaylistHymn, HymnNote
 )
-from .admin_actions import bulk_upload_hymns, parse_word_document, parse_text_file
+from .admin_actions import bulk_upload_hymns
+from .hymn_json_import import (
+    HymnJsonImportError,
+    example_hymn_nch_1,
+    import_hymns_for_denomination,
+    parse_json_payload,
+)
 
 
 @admin.register(Category)
@@ -92,204 +98,28 @@ class DenominationHymnAdmin(admin.ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path('bulk-upload/', self.admin_site.admin_view(self.bulk_upload_view), name='hymns_denominationhymn_bulk_upload'),
-            path('json-upload/', self.admin_site.admin_view(self.json_upload_view), name='hymns_denominationhymn_json_upload'),
+            path(
+                'bulk-upload/',
+                self.admin_site.admin_view(self.bulk_upload_view),
+                name='hymns_denominationhymn_bulk_upload',
+            ),
         ]
         return custom_urls + urls
-    
-    def bulk_upload_view(self, request):
-        """Bulk upload denomination hymns with verses"""
-        if request.method == 'POST':
-            files = request.FILES.getlist('files')
-            denomination_id = request.POST.get('denomination')
-            hymn_period = request.POST.get('hymn_period') or None
-            category_id = request.POST.get('category')
-            author_id = request.POST.get('author')
-            is_premium = request.POST.get('is_premium') == 'on'
-            start_number = request.POST.get('start_number', '').strip()
-            
-            if not files:
-                messages.error(request, 'Please select at least one file')
-                return redirect('admin:hymns_denominationhymn_bulk_upload')
-            
-            if not denomination_id:
-                messages.error(request, 'Please select a denomination')
-                return redirect('admin:hymns_denominationhymn_bulk_upload')
-            
-            try:
-                denomination = Denomination.objects.get(id=denomination_id)
-            except Denomination.DoesNotExist:
-                messages.error(request, 'Invalid denomination selected')
-                return redirect('admin:hymns_denominationhymn_bulk_upload')
-            
-            # Validate hymn_period for Catholic
-            if denomination.slug == 'catholic' and not hymn_period:
-                messages.error(request, 'Catholic hymns must specify hymn period (New or Old)')
-                return redirect('admin:hymns_denominationhymn_bulk_upload')
-            elif denomination.slug != 'catholic' and hymn_period:
-                messages.error(request, 'Hymn period can only be set for Catholic hymns')
-                return redirect('admin:hymns_denominationhymn_bulk_upload')
-            
-            category = Category.objects.get(id=category_id) if category_id else None
-            author = Author.objects.get(id=author_id) if author_id else None
-            
-            # Determine starting number
-            if start_number:
-                try:
-                    current_number = int(start_number)
-                except ValueError:
-                    messages.error(request, 'Invalid starting number')
-                    return redirect('admin:hymns_denominationhymn_bulk_upload')
-            else:
-                # Get the last number for this denomination/period
-                last_dh = DenominationHymn.objects.filter(
-                    denomination=denomination,
-                    hymn_period=hymn_period
-                ).order_by('-number').first()
-                current_number = (last_dh.number + 1) if last_dh else 1
-            
-            created_count = 0
-            error_count = 0
-            
-            from django.db import transaction
-            with transaction.atomic():
-                for file in files:
-                    try:
-                        file_extension = file.name.split('.')[-1].lower()
-                        
-                        if file_extension in ['docx', 'doc']:
-                            parsed_data = parse_word_document(file)
-                        elif file_extension in ['txt', 'text']:
-                            parsed_data = parse_text_file(file)
-                        else:
-                            messages.error(request, f'Unsupported file format: {file_extension}')
-                            error_count += 1
-                            continue
-                        
-                        # Handle both single hymn and list of hymns
-                        hymns_list = parsed_data if isinstance(parsed_data, list) else [parsed_data]
-                        
-                        for hymn_data in hymns_list:
-                            # Skip empty hymns
-                            if not hymn_data or (not hymn_data.get('number') and not hymn_data.get('verses')):
-                                continue
-                            
-                            # Get or create the Hymn (shared across denominations)
-                            hymn, hymn_created = Hymn.objects.get_or_create(
-                                title=hymn_data.get('title', 'Untitled Hymn'),
-                                defaults={
-                                    'category': category,
-                                    'author': author,
-                                    'language': hymn_data.get('language', 'English'),
-                                    'is_premium': is_premium,
-                                }
-                            )
-                            
-                            # Use hymn number from data if available, otherwise use current_number
-                            hymn_number = hymn_data.get('number') or current_number
-                            
-                            # Check if this number already exists for this denomination/period
-                            existing_dh = DenominationHymn.objects.filter(
-                                denomination=denomination,
-                                hymn_period=hymn_period,
-                                number=hymn_number
-                            ).exclude(hymn=hymn).first()
-                            
-                            if existing_dh:
-                                # Number conflict - use auto-increment instead
-                                messages.warning(
-                                    request, 
-                                    f'Hymn number {hymn_number} already exists for {denomination.name}. '
-                                    f'Using auto-incremented number {current_number} for "{hymn_data.get("title", "Untitled")}"'
-                                )
-                                hymn_number = current_number
-                            
-                            # Create or get DenominationHymn (match on hymn+denomination+period, not number)
-                            denomination_hymn, dh_created = DenominationHymn.objects.get_or_create(
-                                hymn=hymn,
-                                denomination=denomination,
-                                hymn_period=hymn_period,
-                                defaults={'number': hymn_number}
-                            )
-                            
-                            # Update number if it changed and doesn't conflict
-                            if not dh_created and denomination_hymn.number != hymn_number:
-                                # Check if the new number conflicts
-                                conflict = DenominationHymn.objects.filter(
-                                    denomination=denomination,
-                                    hymn_period=hymn_period,
-                                    number=hymn_number
-                                ).exclude(id=denomination_hymn.id).exists()
-                                
-                                if not conflict:
-                                    denomination_hymn.number = hymn_number
-                                    denomination_hymn.save()
-                                else:
-                                    messages.warning(
-                                        request,
-                                        f'Cannot update number for "{hymn.title}" to {hymn_number} - already exists. Keeping number {denomination_hymn.number}'
-                                    )
-                            
-                            # Add or update verses (use get_or_create to avoid duplicates)
-                            verses_added = 0
-                            verses_updated = 0
-                            for verse_data in hymn_data.get('verses', []):
-                                verse, verse_created = Verse.objects.get_or_create(
-                                    denomination_hymn=denomination_hymn,
-                                    verse_number=verse_data['verse_number'],
-                                    is_chorus=verse_data.get('is_chorus', False),
-                                    defaults={
-                                        'text': verse_data['text'],
-                                        'order': verse_data.get('order', verse_data['verse_number'])
-                                    }
-                                )
-                                # Update text if verse already exists (in case lyrics changed)
-                                if not verse_created:
-                                    if verse.text != verse_data['text']:
-                                        verse.text = verse_data['text']
-                                        verse.order = verse_data.get('order', verse_data['verse_number'])
-                                        verse.save()
-                                        verses_updated += 1
-                                else:
-                                    verses_added += 1
-                            
-                            if dh_created:
-                                created_count += 1
-                                if verses_added > 0:
-                                    messages.success(request, f'Created "{hymn.title}" #{hymn_number} with {verses_added} verses')
-                                current_number = hymn_number + 1
-                            else:
-                                if verses_added > 0:
-                                    messages.info(request, f'Denomination Hymn "{hymn.title}" #{hymn_number} already exists, but added {verses_added} new verses')
-                                elif verses_updated > 0:
-                                    messages.info(request, f'Denomination Hymn "{hymn.title}" #{hymn_number} already exists, updated {verses_updated} verses')
-                                else:
-                                    messages.warning(request, f'Denomination Hymn "{hymn.title}" #{hymn_number} already exists with all verses, skipped')
-                                # Update current_number to be after this hymn's number
-                                current_number = max(current_number, hymn_number + 1)
-                    
-                    except Exception as e:
-                        messages.error(request, f'Error processing {file.name}: {str(e)}')
-                        error_count += 1
-            
-            messages.success(request, f'Successfully created {created_count} denomination hymns with verses. {error_count} errors.')
-            return redirect('admin:hymns_denominationhymn_changelist')
-        
-        # GET request - show form
-        denominations = Denomination.objects.filter(is_active=True)
-        categories = Category.objects.all()
-        authors = Author.objects.all()
-        return render(request, 'admin/bulk_upload_denominationhymn.html', {
-            'denominations': denominations,
-            'categories': categories,
-            'authors': authors,
-            'title': 'Bulk Upload Denomination Hymns',
-        })
-    
-    def json_upload_view(self, request):
-        """JSON upload view for denomination hymns"""
+
+    def _bulk_upload_context(self, example_json: str | None = None):
         import json
-        
+
+        return {
+            'denominations': Denomination.objects.filter(is_active=True),
+            'categories': Category.objects.all(),
+            'authors': Author.objects.all(),
+            'title': 'Bulk Upload Hymns (JSON)',
+            'example_json': example_json
+            or json.dumps(example_hymn_nch_1(), indent=2),
+        }
+
+    def bulk_upload_view(self, request):
+        """Bulk upload denomination hymns via JSON (or plain text auto-converted)."""
         if request.method == 'POST':
             json_data = request.POST.get('json_data', '').strip()
             denomination_id = request.POST.get('denomination')
@@ -297,199 +127,77 @@ class DenominationHymnAdmin(admin.ModelAdmin):
             category_id = request.POST.get('category')
             author_id = request.POST.get('author')
             is_premium = request.POST.get('is_premium') == 'on'
-            start_number = request.POST.get('start_number', '').strip()
-            
+            start_number_raw = request.POST.get('start_number', '').strip()
+
             if not json_data:
-                messages.error(request, 'Please paste JSON data')
-                return redirect('admin:hymns_denominationhymn_json_upload')
-            
+                messages.error(request, 'Paste JSON hymn data (see example below)')
+                return redirect('admin:hymns_denominationhymn_bulk_upload')
+
             if not denomination_id:
                 messages.error(request, 'Please select a denomination')
-                return redirect('admin:hymns_denominationhymn_json_upload')
-            
+                return redirect('admin:hymns_denominationhymn_bulk_upload')
+
             try:
                 denomination = Denomination.objects.get(id=denomination_id)
             except Denomination.DoesNotExist:
                 messages.error(request, 'Invalid denomination selected')
-                return redirect('admin:hymns_denominationhymn_json_upload')
-            
-            # Validate hymn_period for Catholic
-            if denomination.slug == 'catholic' and not hymn_period:
-                messages.error(request, 'Catholic hymns must specify hymn period (New or Old)')
-                return redirect('admin:hymns_denominationhymn_json_upload')
-            elif denomination.slug != 'catholic' and hymn_period:
-                messages.error(request, 'Hymn period can only be set for Catholic hymns')
-                return redirect('admin:hymns_denominationhymn_json_upload')
-            
+                return redirect('admin:hymns_denominationhymn_bulk_upload')
+
+            start_number = None
+            if start_number_raw:
+                try:
+                    start_number = int(start_number_raw)
+                except ValueError:
+                    messages.error(request, 'Invalid starting hymn number')
+                    return redirect('admin:hymns_denominationhymn_bulk_upload')
+
             category = Category.objects.get(id=category_id) if category_id else None
             author = Author.objects.get(id=author_id) if author_id else None
-            
-            # Determine starting number
-            if start_number:
-                try:
-                    current_number = int(start_number)
-                except ValueError:
-                    messages.error(request, 'Invalid starting number')
-                    return redirect('admin:hymns_denominationhymn_json_upload')
-            else:
-                # Get the last number for this denomination/period
-                last_dh = DenominationHymn.objects.filter(
-                    denomination=denomination,
-                    hymn_period=hymn_period
-                ).order_by('-number').first()
-                current_number = (last_dh.number + 1) if last_dh else 1
-            
-            created_count = 0
-            error_count = 0
-            
+
             try:
-                # Parse JSON - support both single object and array
-                try:
-                    hymns_data = json.loads(json_data)
-                except json.JSONDecodeError as e:
-                    messages.error(request, f'Invalid JSON format: {str(e)}')
-                    return redirect('admin:hymns_denominationhymn_json_upload')
-                
-                # Convert single object to list
-                if not isinstance(hymns_data, list):
-                    hymns_data = [hymns_data]
-                
-                from django.db import transaction
-                with transaction.atomic():
-                    for hymn_data in hymns_data:
-                        try:
-                            # Extract hymn information
-                            hymn_number = hymn_data.get('number') or current_number
-                            title = hymn_data.get('title', 'Untitled Hymn')
-                            verses_data = hymn_data.get('verses', [])
-                            
-                            # Check for number conflict
-                            existing_dh = DenominationHymn.objects.filter(
-                                denomination=denomination,
-                                hymn_period=hymn_period,
-                                number=hymn_number
-                            ).first()
-                            
-                            if existing_dh and existing_dh.hymn.title != title:
-                                # Number conflict - use auto-increment instead
-                                messages.warning(
-                                    request, 
-                                    f'Hymn number {hymn_number} already exists. Using auto-incremented number {current_number} for "{title}"'
-                                )
-                                hymn_number = current_number
-                            
-                            # Get or create the Hymn (shared across denominations)
-                            hymn, hymn_created = Hymn.objects.get_or_create(
-                                title=title,
-                                defaults={
-                                    'category': category,
-                                    'author': author,
-                                    'language': hymn_data.get('language', 'English'),
-                                    'is_premium': is_premium,
-                                }
-                            )
-                            
-                            # Create or get DenominationHymn
-                            denomination_hymn, dh_created = DenominationHymn.objects.get_or_create(
-                                hymn=hymn,
-                                denomination=denomination,
-                                hymn_period=hymn_period,
-                                defaults={'number': hymn_number}
-                            )
-                            
-                            # Update number if needed
-                            if not dh_created and denomination_hymn.number != hymn_number:
-                                conflict = DenominationHymn.objects.filter(
-                                    denomination=denomination,
-                                    hymn_period=hymn_period,
-                                    number=hymn_number
-                                ).exclude(id=denomination_hymn.id).exists()
-                                
-                                if not conflict:
-                                    denomination_hymn.number = hymn_number
-                                    denomination_hymn.save()
-                            
-                            # Process verses
-                            verses_added = 0
-                            verses_updated = 0
-                            
-                            for idx, verse_item in enumerate(verses_data, 1):
-                                # Support two formats:
-                                # 1. Simple string: "verse text"
-                                # 2. Object: {"verse_number": 1, "text": "...", "is_chorus": false}
-                                
-                                if isinstance(verse_item, str):
-                                    # Simple format - auto-number
-                                    verse_number = idx
-                                    verse_text = verse_item
-                                    is_chorus = False
-                                else:
-                                    # Object format
-                                    verse_number = verse_item.get('verse_number', idx)
-                                    verse_text = verse_item.get('text', '')
-                                    is_chorus = verse_item.get('is_chorus', False)
-                                
-                                if not verse_text:
-                                    continue
-                                
-                                verse, verse_created = Verse.objects.get_or_create(
-                                    denomination_hymn=denomination_hymn,
-                                    verse_number=verse_number,
-                                    is_chorus=is_chorus,
-                                    defaults={
-                                        'text': verse_text,
-                                        'order': verse_number
-                                    }
-                                )
-                                
-                                if not verse_created:
-                                    if verse.text != verse_text:
-                                        verse.text = verse_text
-                                        verse.order = verse_number
-                                        verse.save()
-                                        verses_updated += 1
-                                else:
-                                    verses_added += 1
-                            
-                            if dh_created:
-                                created_count += 1
-                                if verses_added > 0:
-                                    messages.success(request, f'Created "{title}" #{hymn_number} with {verses_added} verses')
-                                current_number = hymn_number + 1
-                            else:
-                                if verses_added > 0:
-                                    messages.info(request, f'Denomination Hymn "{title}" #{hymn_number} already exists, but added {verses_added} new verses')
-                                elif verses_updated > 0:
-                                    messages.info(request, f'Denomination Hymn "{title}" #{hymn_number} already exists, updated {verses_updated} verses')
-                                else:
-                                    messages.warning(request, f'Denomination Hymn "{title}" #{hymn_number} already exists with all verses, skipped')
-                                current_number = max(current_number, hymn_number + 1)
-                        
-                        except Exception as e:
-                            messages.error(request, f'Error processing hymn: {str(e)}')
-                            error_count += 1
-                            import traceback
-                            traceback.print_exc()
-                
-                messages.success(request, f'Successfully created {created_count} denomination hymns with verses. {error_count} errors.')
-                return redirect('admin:hymns_denominationhymn_changelist')
-            
-            except Exception as e:
-                messages.error(request, f'Error processing JSON: {str(e)}')
-                import traceback
-                traceback.print_exc()
-                return redirect('admin:hymns_denominationhymn_json_upload')
-        
-        # GET request - show form
-        denominations = Denomination.objects.filter(is_active=True)
-        categories = Category.objects.all()
-        authors = Author.objects.all()
-        return render(request, 'admin/json_upload_denominationhymn.html', {
-            'denominations': denominations,
-            'categories': categories,
-            'authors': authors,
-            'title': 'JSON Upload Denomination Hymns',
-        })
+                hymns_data = parse_json_payload(json_data)
+            except HymnJsonImportError as e:
+                messages.error(request, str(e))
+                return redirect('admin:hymns_denominationhymn_bulk_upload')
+
+            admin_messages: list[tuple[str, str]] = []
+            try:
+                result = import_hymns_for_denomination(
+                    hymns_data=hymns_data,
+                    denomination=denomination,
+                    hymn_period=hymn_period,
+                    category=category,
+                    author=author,
+                    is_premium=is_premium,
+                    start_number=start_number,
+                    message_collector=admin_messages,
+                )
+            except HymnJsonImportError as e:
+                messages.error(request, str(e))
+                return redirect('admin:hymns_denominationhymn_bulk_upload')
+
+            for level, text in admin_messages:
+                if level == 'success':
+                    messages.success(request, text)
+                elif level == 'info':
+                    messages.info(request, text)
+                elif level == 'warning':
+                    messages.warning(request, text)
+                else:
+                    messages.error(request, text)
+
+            messages.success(
+                request,
+                f'Import finished: {result.created_count} created, '
+                f'{result.updated_count} updated, {result.error_count} errors.',
+            )
+            return redirect('admin:hymns_denominationhymn_changelist')
+
+        return render(
+            request,
+            'admin/bulk_upload_denominationhymn.html',
+            self._bulk_upload_context(),
+        )
 
 
 class DenominationHymnInline(admin.TabularInline):

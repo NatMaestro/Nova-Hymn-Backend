@@ -23,9 +23,9 @@ services:
       - key: CORS_ALLOW_ALL_ORIGINS
         value: "False"
       - key: CORS_ALLOWED_ORIGINS
-        value: https://your-frontend-domain.com
+        value: http://localhost:3000,http://127.0.0.1:3000
       - key: CSRF_TRUSTED_ORIGINS
-        value: https://your-frontend-domain.com
+        value: https://nova-hymn-backend.onrender.com,http://localhost:3000
       - key: DB_NAME
         fromDatabase:
           name: nova-hymnal-db

@@ -21,6 +21,18 @@ ENV = config('ENV', default='development')
 ALLOWED_HOSTS_STR = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,192.168.8.186')
 ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_STR.split(',') if host.strip()]
 
+# Render sets RENDER_EXTERNAL_HOSTNAME (e.g. nova-hymn-backend.onrender.com)
+_render_host = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '').strip()
+if _render_host and _render_host not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_render_host)
+
+_extra_hosts = config('ALLOWED_HOSTS_EXTRA', default='')
+if _extra_hosts:
+    for host in _extra_hosts.split(','):
+        host = host.strip()
+        if host and host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(host)
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -185,6 +197,10 @@ if not CORS_ALLOW_ALL_ORIGINS:
         default='',
         cast=lambda v: [origin.strip() for origin in v.split(',') if origin.strip()]
     )
+    # Local Next.js dev against production API
+    for origin in ('http://localhost:3000', 'http://127.0.0.1:3000'):
+        if origin not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(origin)
 
 # Additional CORS settings for React Native
 CORS_ALLOW_CREDENTIALS = True
@@ -206,6 +222,10 @@ CSRF_TRUSTED_ORIGINS = config(
     default='http://localhost:3000,http://localhost:19006,http://localhost:8081',
     cast=lambda v: [origin.strip() for origin in v.split(',') if origin.strip()]
 )
+if _render_host:
+    _render_origin = f'https://{_render_host}'
+    if _render_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(_render_origin)
 
 # Swagger/OpenAPI Settings
 SWAGGER_SETTINGS = {
