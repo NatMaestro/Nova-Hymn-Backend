@@ -244,6 +244,14 @@ STORAGES = {
     },
 }
 
+# Rate limiting (django-ratelimit) — use Redis in multi-worker production
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "nova-hymnal-ratelimit",
+    }
+}
+
 # Logging Configuration
 LOGGING = {
     'version': 1,

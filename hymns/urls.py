@@ -9,6 +9,7 @@ from .views import (
     DenominationViewSet, DenominationHymnViewSet
 )
 from .webhooks import revenuecat_webhook
+from .payments_views import flutterwave_confirm
 
 router = DefaultRouter()
 router.register(r'categories', CategoryViewSet, basename='category')
@@ -32,5 +33,7 @@ urlpatterns = [
     path('auth/profile/', user_profile, name='user_profile'),
     # Webhooks
     path('webhooks/revenuecat/', revenuecat_webhook, name='revenuecat_webhook'),
+    # Payments (Flutterwave — server verifies with secret key)
+    path('payments/flutterwave/confirm/', flutterwave_confirm, name='flutterwave_confirm'),
 ]
 

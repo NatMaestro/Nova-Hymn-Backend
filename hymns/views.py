@@ -8,6 +8,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import Q
 from django.utils import timezone
+from datetime import timedelta
 from django.core.exceptions import ValidationError
 from django_ratelimit.decorators import ratelimit
 from drf_yasg.utils import swagger_auto_schema
@@ -425,7 +426,7 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
     )
     @action(detail=False, methods=['post'])
     def verify(self, request):
-        """Verify subscription from app store receipt"""
+        """Verify subscription from app store receipt or Flutterwave web payment"""
         transaction_id = request.data.get('transaction_id')
         product_id = request.data.get('product_id')
         receipt_data = request.data.get('receipt_data')
@@ -436,27 +437,120 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
                 {'detail': 'Missing required fields'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Check if subscription already exists
-        subscription, created = Subscription.objects.get_or_create(
-            transaction_id=transaction_id,
-            defaults={
-                'user': request.user,
-                'product_id': product_id,
-                'receipt_data': receipt_data,
-                'platform': platform,
-                'status': 'active',
-            }
-        )
-        
-        if not created:
-            # Update existing subscription
-            subscription.receipt_data = receipt_data
-            subscription.status = 'active'
-            subscription.save()
-        
+
+        product_lower = str(product_id).lower()
+        if 'monthly' in product_lower:
+            subscription_type = 'monthly'
+            duration = timedelta(days=30)
+        elif 'yearly' in product_lower or 'annual' in product_lower:
+            subscription_type = 'yearly'
+            duration = timedelta(days=365)
+        elif 'lifetime' in product_lower:
+            subscription_type = 'lifetime'
+            duration = None
+        else:
+            subscription_type = 'monthly'
+            duration = timedelta(days=30)
+
+        from .models import PaymentLedger
+        from .payment_services import get_plan
+
+        now = timezone.now()
+
+        if platform == 'web':
+            ledger = PaymentLedger.objects.filter(transaction_id=transaction_id).first()
+            if not ledger:
+                return Response(
+                    {'detail': 'Payment not found. Complete Flutterwave checkout first.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if ledger.expires_at <= now:
+                return Response(
+                    {'detail': 'Payment entitlement has expired'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if ledger.user_id and ledger.user_id != request.user.id:
+                return Response(
+                    {'detail': 'This transaction is already linked to another account'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            plan = get_plan(ledger.plan_id)
+            if plan and product_id != plan.product_id:
+                return Response(
+                    {'detail': 'product_id does not match verified payment'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not ledger.user_id:
+                ledger.user = request.user
+                ledger.save(update_fields=['user'])
+            subscription_type = ledger.plan_id if ledger.plan_id in ('monthly', 'yearly') else subscription_type
+            expires_at = ledger.expires_at
+            duration = None
+        else:
+            ledger = PaymentLedger.objects.filter(transaction_id=transaction_id).first()
+            if ledger and ledger.user_id and ledger.user_id != request.user.id:
+                return Response(
+                    {'detail': 'This transaction is already linked to another account'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            expires_at = None if duration is None else now + duration
+
+        from django.db import IntegrityError, transaction as db_transaction
+
+        try:
+            with db_transaction.atomic():
+                subscription, created = Subscription.objects.select_for_update().get_or_create(
+                    transaction_id=transaction_id,
+                    defaults={
+                        'user': request.user,
+                        'product_id': product_id,
+                        'receipt_data': receipt_data,
+                        'platform': platform,
+                        'status': 'active',
+                        'subscription_type': subscription_type,
+                        'expires_at': expires_at,
+                    },
+                )
+
+                if not created:
+                    if subscription.user_id != request.user.id:
+                        return Response(
+                            {'detail': 'Transaction belongs to another user'},
+                            status=status.HTTP_409_CONFLICT,
+                        )
+                    subscription.receipt_data = receipt_data
+                    subscription.status = 'active'
+                    subscription.subscription_type = subscription_type
+                    subscription.platform = platform
+                    if expires_at and duration:
+                        base = (
+                            subscription.expires_at
+                            if subscription.expires_at and subscription.expires_at > now
+                            else now
+                        )
+                        subscription.expires_at = base + duration
+                    else:
+                        subscription.expires_at = expires_at
+                    subscription.save()
+        except IntegrityError:
+            subscription = Subscription.objects.get(transaction_id=transaction_id)
+            if subscription.user_id != request.user.id:
+                return Response(
+                    {'detail': 'Transaction belongs to another user'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            created = False
+
+        request.user.is_premium = True
+        if subscription.expires_at:
+            request.user.premium_expires_at = subscription.expires_at
+        request.user.save(update_fields=['is_premium', 'premium_expires_at'])
+
         serializer = self.get_serializer(subscription)
-        return Response(serializer.data, status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED)
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED,
+        )
     
     @swagger_auto_schema(
         method='get',
@@ -476,18 +570,26 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def status(self, request):
         """Get current subscription status"""
-        active_subscription = Subscription.objects.filter(
-            user=request.user,
-            status='active'
-        ).first()
-        
-        if active_subscription:
+        now = timezone.now()
+        active_subscription = (
+            Subscription.objects.filter(
+                user=request.user,
+                status='active',
+            )
+            .filter(
+                Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+            )
+            .order_by('-expires_at')
+            .first()
+        )
+
+        if active_subscription and request.user.has_active_premium:
             serializer = self.get_serializer(active_subscription)
             return Response({
                 'has_premium': True,
                 'subscription': serializer.data
             })
-        
+
         return Response({
             'has_premium': False,
             'subscription': None

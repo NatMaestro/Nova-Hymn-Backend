@@ -370,6 +370,33 @@ class Subscription(models.Model):
                 self.user.save(update_fields=['is_premium', 'premium_expires_at'])
 
 
+class PaymentLedger(models.Model):
+    """
+    Idempotent record of verified Flutterwave payments (prevents replay / race abuse).
+    transaction_id is globally unique — one payment grants premium once.
+    """
+    transaction_id = models.CharField(max_length=255, unique=True, db_index=True)
+    tx_ref = models.CharField(max_length=255, blank=True, default="")
+    plan_id = models.CharField(max_length=20)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=8)
+    expires_at = models.DateTimeField()
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="payment_ledger_entries",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.transaction_id} ({self.plan_id})"
+
+
 class Favorite(models.Model):
     """User favorites for hymns"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='favorites')
