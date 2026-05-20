@@ -17,6 +17,7 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 FLUTTERWAVE_SECRET_KEY = config("FLUTTERWAVE_SECRET_KEY", default="")
+PAYSTACK_SECRET_KEY = config("PAYSTACK_SECRET_KEY", default="")
 PREMIUM_CURRENCY = config("PREMIUM_CURRENCY", default="GHS").upper()
 PREMIUM_MONTHLY_AMOUNT = Decimal(str(config("PREMIUM_MONTHLY_AMOUNT", default="50")))
 PREMIUM_YEARLY_AMOUNT = Decimal(str(config("PREMIUM_YEARLY_AMOUNT", default="500")))
@@ -69,6 +70,18 @@ class FlutterwaveError(Exception):
     pass
 
 
+class PaystackError(Exception):
+    pass
+
+
+@dataclass
+class PaystackTransaction:
+    reference: str
+    amount: Decimal
+    currency: str
+    status: str
+
+
 def verify_flutterwave_transaction(transaction_id: str) -> FlutterwaveTransaction:
     if not FLUTTERWAVE_SECRET_KEY:
         raise FlutterwaveError("Flutterwave is not configured on the server")
@@ -100,6 +113,44 @@ def verify_flutterwave_transaction(transaction_id: str) -> FlutterwaveTransactio
         transaction_id=str(data.get("id", transaction_id)),
         tx_ref=str(data.get("tx_ref", "")),
         amount=Decimal(str(data.get("amount", 0))),
+        currency=str(data.get("currency", "")).upper(),
+        status=str(data.get("status", "")),
+    )
+
+
+def verify_paystack_transaction(reference: str) -> PaystackTransaction:
+    if not PAYSTACK_SECRET_KEY:
+        raise PaystackError("Paystack is not configured on the server")
+
+    url = f"https://api.paystack.co/transaction/verify/{reference}"
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        logger.warning("Paystack HTTP error %s for reference %s", e.code, reference)
+        raise PaystackError("Could not verify payment with Paystack") from e
+    except urllib.error.URLError as e:
+        logger.warning("Paystack network error for reference %s: %s", reference, e)
+        raise PaystackError("Payment verification unavailable") from e
+
+    if payload.get("status") is not True:
+        raise PaystackError("Invalid verification response")
+
+    data = payload.get("data") or {}
+    if data.get("status") != "success":
+        raise PaystackError("Transaction was not successful")
+
+    # Paystack returns amount in the smallest currency unit (e.g. pesewas/kobo).
+    amount = Decimal(str(data.get("amount", 0))) / Decimal("100")
+
+    return PaystackTransaction(
+        reference=str(data.get("reference", reference)),
+        amount=amount,
         currency=str(data.get("currency", "")).upper(),
         status=str(data.get("status", "")),
     )

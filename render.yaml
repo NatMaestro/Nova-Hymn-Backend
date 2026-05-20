@@ -48,6 +48,16 @@ services:
           property: port
       - key: REVENUECAT_WEBHOOK_SECRET
         sync: false
+      - key: FLUTTERWAVE_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PREMIUM_MONTHLY_AMOUNT
+        value: "50"
+      - key: PREMIUM_YEARLY_AMOUNT
+        value: "500"
+      - key: PREMIUM_CURRENCY
+        value: GHS
 
 databases:
   - name: nova-hymnal-db
