@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import timedelta
@@ -122,18 +123,35 @@ def verify_paystack_transaction(reference: str) -> PaystackTransaction:
     if not PAYSTACK_SECRET_KEY:
         raise PaystackError("Paystack is not configured on the server")
 
-    url = f"https://api.paystack.co/transaction/verify/{reference}"
+    encoded_reference = urllib.parse.quote(reference, safe="")
+    url = f"https://api.paystack.co/transaction/verify/{encoded_reference}"
     req = urllib.request.Request(
         url,
-        headers={"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"},
+        headers={
+            "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "NovaHymnal/1.0",
+        },
         method="GET",
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             payload = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        logger.warning("Paystack HTTP error %s for reference %s", e.code, reference)
-        raise PaystackError("Could not verify payment with Paystack") from e
+        detail = "Could not verify payment with Paystack"
+        try:
+            error_payload = json.loads(e.read().decode())
+            detail = str(error_payload.get("message") or detail)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        logger.warning(
+            "Paystack HTTP error %s for reference %s: %s",
+            e.code,
+            reference,
+            detail,
+        )
+        raise PaystackError(detail) from e
     except urllib.error.URLError as e:
         logger.warning("Paystack network error for reference %s: %s", reference, e)
         raise PaystackError("Payment verification unavailable") from e
