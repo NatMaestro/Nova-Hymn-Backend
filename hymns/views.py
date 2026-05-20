@@ -6,7 +6,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticate
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from django.db.models import Q
+from django.db.models import Min, Q
 from django.utils import timezone
 from datetime import timedelta
 from django.core.exceptions import ValidationError
@@ -110,17 +110,32 @@ class HymnViewSet(viewsets.ReadOnlyModelViewSet):
         # Only apply denomination filter for list views, not for retrieve (detail) views
         # This allows accessing hymns by ID even if they don't match the denomination filter
         if self.action == 'list' and denomination_id:
-            # Filter hymns that belong to this denomination
-            queryset = queryset.filter(denomination_hymns__denomination_id=denomination_id)
+            denomination_filter = Q(denomination_hymns__denomination_id=denomination_id)
             if hymn_period:
-                queryset = queryset.filter(denomination_hymns__hymn_period=hymn_period)
-            # Remove duplicates
-            queryset = queryset.distinct()
+                denomination_filter &= Q(denomination_hymns__hymn_period=hymn_period)
+
+            queryset = (
+                queryset
+                .annotate(denomination_number=Min('denomination_hymns__number', filter=denomination_filter))
+                .filter(denomination_number__isnull=False)
+                .order_by('denomination_number', 'title')
+            )
             logger.info(f"Filtered queryset count: {queryset.count()}")
         else:
             # If no denomination specified or this is a retrieve action, return all hymns
             logger.info(f"No denomination filter (action={self.action}), returning all hymns: {queryset.count()}")
         
+        return queryset
+
+    def filter_queryset(self, queryset):
+        """Keep default hymn list ordering by denomination number after filters run."""
+        queryset = super().filter_queryset(queryset)
+        if (
+            self.action == 'list'
+            and self.request.query_params.get('denomination')
+            and not self.request.query_params.get('ordering')
+        ):
+            queryset = queryset.order_by('denomination_number', 'title')
         return queryset
 
     def get_serializer_class(self):
