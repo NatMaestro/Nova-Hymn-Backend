@@ -6,7 +6,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticate
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from django.db.models import Min, Q
+from django.db.models import Exists, Min, OuterRef, Q
 from django.utils import timezone
 from datetime import timedelta
 from django.core.exceptions import ValidationError
@@ -32,13 +32,20 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for viewing categories.
     """
-    queryset = Category.objects.all()
+    queryset = Category.objects.prefetch_related('denominations').all()
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
     filter_backends = [SearchFilter, OrderingFilter]
     search_fields = ['name', 'description']
     ordering_fields = ['name', 'created_at']
     ordering = ['name']
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        denomination_id = self.request.query_params.get('denomination')
+        if denomination_id:
+            queryset = queryset.filter(denominations__id=denomination_id).distinct()
+        return queryset
 
 
 class AuthorViewSet(viewsets.ReadOnlyModelViewSet):
@@ -86,7 +93,7 @@ class HymnViewSet(viewsets.ReadOnlyModelViewSet):
     ViewSet for viewing hymns with premium content protection.
     Supports filtering by denomination and hymn_period.
     """
-    queryset = Hymn.objects.select_related('category', 'author').prefetch_related(
+    queryset = Hymn.objects.select_related('category', 'author', 'sheet_music').prefetch_related(
         'denomination_hymns__denomination', 'denomination_hymns__verses', 'audio_files'
     ).all()
     permission_classes = [AllowAny]
@@ -101,11 +108,28 @@ class HymnViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = super().get_queryset()
         denomination_id = self.request.query_params.get('denomination')
         hymn_period = self.request.query_params.get('hymn_period')
-        
+        asset_filter = self.request.query_params.get('asset_filter')
+
+        if self.action == 'list':
+            sheet_music_exists = SheetMusic.objects.filter(
+                hymn_id=OuterRef('pk')
+            ).filter(Q(file__gt='') | Q(url__gt=''))
+            audio_exists = AudioFile.objects.filter(hymn_id=OuterRef('pk'))
+            queryset = queryset.annotate(
+                has_sheet_music_flag=Exists(sheet_music_exists),
+                has_audio_flag=Exists(audio_exists),
+            )
+
         # Debug logging
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"HymnViewSet: denomination_id={denomination_id}, hymn_period={hymn_period}, action={self.action}")
+        logger.info(
+            "HymnViewSet: denomination_id=%s, hymn_period=%s, asset_filter=%s, action=%s",
+            denomination_id,
+            hymn_period,
+            asset_filter,
+            self.action,
+        )
         
         # Only apply denomination filter for list views, not for retrieve (detail) views
         # This allows accessing hymns by ID even if they don't match the denomination filter
@@ -120,10 +144,24 @@ class HymnViewSet(viewsets.ReadOnlyModelViewSet):
                 .filter(denomination_number__isnull=False)
                 .order_by('denomination_number', 'title')
             )
-            logger.info(f"Filtered queryset count: {queryset.count()}")
-        else:
-            # If no denomination specified or this is a retrieve action, return all hymns
-            logger.info(f"No denomination filter (action={self.action}), returning all hymns: {queryset.count()}")
+        elif self.action != 'list':
+            # If this is a retrieve action, return all hymns.
+            logger.info("No denomination filter applied for action=%s", self.action)
+
+        if self.action == 'list':
+            if asset_filter == 'sheet':
+                queryset = queryset.filter(has_sheet_music_flag=True)
+            elif asset_filter == 'audio':
+                queryset = queryset.filter(has_audio_flag=True)
+            elif asset_filter == 'both':
+                queryset = queryset.filter(
+                    has_sheet_music_flag=True,
+                    has_audio_flag=True,
+                )
+            elif asset_filter == 'any':
+                queryset = queryset.filter(
+                    Q(has_sheet_music_flag=True) | Q(has_audio_flag=True)
+                )
         
         return queryset
 

@@ -319,6 +319,8 @@ def import_hymns_for_denomination(
         raise HymnJsonImportError("Catholic hymns require hymn_period (new or old)")
     if denomination.slug != "catholic" and hymn_period:
         raise HymnJsonImportError("hymn_period is only valid for Catholic hymns")
+    if category:
+        category.denominations.add(denomination)
 
     if start_number is not None:
         current_number = start_number

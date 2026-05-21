@@ -10,14 +10,28 @@ from .models import (
 
 class CategorySerializer(serializers.ModelSerializer):
     hymn_count = serializers.SerializerMethodField()
+    denominations = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    denomination_names = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
-        fields = ['id', 'name', 'slug', 'description', 'hymn_count', 'created_at', 'updated_at']
+        fields = [
+            'id', 'name', 'slug', 'description', 'denominations',
+            'denomination_names', 'hymn_count', 'created_at', 'updated_at'
+        ]
         read_only_fields = ['slug', 'created_at', 'updated_at']
 
     def get_hymn_count(self, obj):
+        request = self.context.get('request')
+        denomination_id = request.query_params.get('denomination') if request else None
+        if denomination_id:
+            return obj.hymns.filter(
+                denomination_hymns__denomination_id=denomination_id
+            ).distinct().count()
         return obj.hymns.count()
+
+    def get_denomination_names(self, obj):
+        return list(obj.denominations.values_list('name', flat=True))
 
 
 class AuthorSerializer(serializers.ModelSerializer):
@@ -78,13 +92,16 @@ class HymnListSerializer(serializers.ModelSerializer):
     # Denomination-specific number (from query param)
     number = serializers.SerializerMethodField()
     denomination_info = serializers.SerializerMethodField()
+    has_sheet_music = serializers.SerializerMethodField()
+    has_audio = serializers.SerializerMethodField()
 
     class Meta:
         model = Hymn
         fields = [
             'id', 'number', 'title', 'slug', 'category', 'category_name',
             'author', 'author_name', 'language', 'is_premium', 'is_featured',
-            'view_count', 'denomination_info', 'created_at'
+            'view_count', 'denomination_info', 'has_sheet_music', 'has_audio',
+            'created_at'
         ]
         read_only_fields = ['slug', 'created_at']
     
@@ -121,6 +138,22 @@ class HymnListSerializer(serializers.ModelSerializer):
             for dh in dhs
         ]
 
+    def get_has_sheet_music(self, obj):
+        annotated = getattr(obj, 'has_sheet_music_flag', None)
+        if annotated is not None:
+            return bool(annotated)
+        try:
+            sheet_music = obj.sheet_music
+            return bool(sheet_music and (sheet_music.file or sheet_music.url))
+        except SheetMusic.DoesNotExist:
+            return False
+
+    def get_has_audio(self, obj):
+        annotated = getattr(obj, 'has_audio_flag', None)
+        if annotated is not None:
+            return bool(annotated)
+        return obj.audio_files.exists()
+
 
 class HymnDetailSerializer(serializers.ModelSerializer):
     """Detailed serializer for hymn detail view"""
@@ -133,6 +166,8 @@ class HymnDetailSerializer(serializers.ModelSerializer):
     audio_urls = serializers.SerializerMethodField()
     number = serializers.SerializerMethodField()
     denomination_info = serializers.SerializerMethodField()
+    has_sheet_music = serializers.SerializerMethodField()
+    has_audio = serializers.SerializerMethodField()
 
     class Meta:
         model = Hymn
@@ -142,7 +177,8 @@ class HymnDetailSerializer(serializers.ModelSerializer):
             'verses', 'scripture_references', 'history', 'meter',
             'key_signature', 'time_signature', 'is_premium', 'is_featured',
             'view_count', 'sheet_music_url', 'sheet_music_thumbnail',
-            'audio_urls', 'denomination_info', 'created_at', 'updated_at'
+            'audio_urls', 'denomination_info', 'has_sheet_music', 'has_audio',
+            'created_at', 'updated_at'
         ]
         read_only_fields = ['slug', 'created_at', 'updated_at']
     
@@ -202,6 +238,22 @@ class HymnDetailSerializer(serializers.ModelSerializer):
             }
             for dh in dhs
         ]
+
+    def get_has_sheet_music(self, obj):
+        annotated = getattr(obj, 'has_sheet_music_flag', None)
+        if annotated is not None:
+            return bool(annotated)
+        try:
+            sheet_music = obj.sheet_music
+            return bool(sheet_music and (sheet_music.file or sheet_music.url))
+        except SheetMusic.DoesNotExist:
+            return False
+
+    def get_has_audio(self, obj):
+        annotated = getattr(obj, 'has_audio_flag', None)
+        if annotated is not None:
+            return bool(annotated)
+        return obj.audio_files.exists()
 
     def get_sheet_music_url(self, obj):
         try:

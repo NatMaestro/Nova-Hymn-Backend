@@ -18,14 +18,21 @@ from .hymn_json_import import (
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ['name', 'slug', 'hymn_count', 'created_at']
-    search_fields = ['name', 'description']
+    list_display = ['name', 'slug', 'denomination_list', 'hymn_count', 'created_at']
+    list_filter = ['denominations']
+    search_fields = ['name', 'description', 'denominations__name']
     prepopulated_fields = {'slug': ('name',)}
+    filter_horizontal = ['denominations']
     readonly_fields = ['created_at', 'updated_at']
 
     def hymn_count(self, obj):
         return obj.hymns.count()
     hymn_count.short_description = 'Hymn Count'
+
+    def denomination_list(self, obj):
+        names = obj.denominations.values_list('name', flat=True)
+        return ', '.join(names) or 'None'
+    denomination_list.short_description = 'Denominations'
 
 
 @admin.register(Author)
@@ -152,6 +159,8 @@ class DenominationHymnAdmin(admin.ModelAdmin):
                     return redirect('admin:hymns_denominationhymn_bulk_upload')
 
             category = Category.objects.get(id=category_id) if category_id else None
+            if category:
+                category.denominations.add(denomination)
             author = Author.objects.get(id=author_id) if author_id else None
 
             try:
