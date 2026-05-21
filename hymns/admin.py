@@ -494,7 +494,7 @@ class UserAdmin(admin.ModelAdmin):
     list_display = ['username', 'email', 'is_premium', 'has_active_premium', 'premium_expires_at', 'date_joined']
     list_filter = ['is_premium', 'is_staff', 'is_superuser', 'date_joined']
     search_fields = ['username', 'email', 'first_name', 'last_name']
-    readonly_fields = ['date_joined', 'last_login', 'premium_expires_at']
+    readonly_fields = ['date_joined', 'last_login', 'premium_expires_at', 'has_active_premium']
     fieldsets = (
         ('Authentication', {
             'fields': ('username', 'email', 'password')
