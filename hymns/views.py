@@ -97,7 +97,7 @@ class HymnViewSet(viewsets.ReadOnlyModelViewSet):
         'denomination_hymns__denomination', 'denomination_hymns__verses', 'audio_files'
     ).all()
     permission_classes = [AllowAny]
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['category', 'author', 'language', 'is_premium', 'is_featured']
     search_fields = ['title', 'author__name', 'category__name', 'denomination_hymns__denomination__name']
     ordering_fields = ['title', 'created_at', 'view_count']
@@ -165,9 +165,41 @@ class HymnViewSet(viewsets.ReadOnlyModelViewSet):
         
         return queryset
 
+    def _apply_search(self, queryset):
+        search = self.request.query_params.get('search', '').strip()
+        if not search:
+            return queryset
+
+        denomination_id = self.request.query_params.get('denomination')
+        hymn_period = self.request.query_params.get('hymn_period')
+
+        for term in search.split():
+            term_filter = (
+                Q(title__icontains=term)
+                | Q(author__name__icontains=term)
+                | Q(category__name__icontains=term)
+                | Q(denomination_hymns__denomination__name__icontains=term)
+            )
+
+            if term.isdigit():
+                if denomination_id:
+                    number_filter = Q(denomination_hymns__denomination_id=denomination_id)
+                    number_filter &= Q(denomination_hymns__number=int(term))
+                    if hymn_period:
+                        number_filter &= Q(denomination_hymns__hymn_period=hymn_period)
+                    term_filter |= number_filter
+                else:
+                    term_filter |= Q(denomination_hymns__number=int(term))
+
+            queryset = queryset.filter(term_filter)
+
+        return queryset.distinct()
+
     def filter_queryset(self, queryset):
         """Keep default hymn list ordering by denomination number after filters run."""
         queryset = super().filter_queryset(queryset)
+        if self.action == 'list':
+            queryset = self._apply_search(queryset)
         if (
             self.action == 'list'
             and self.request.query_params.get('denomination')
